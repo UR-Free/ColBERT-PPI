@@ -8,61 +8,6 @@ interaction.
 [Development decisions](docs/DEVELOPMENT_DECISIONS.md) ·
 [Release audit](docs/RELEASE_AUDIT.md)
 
-## What this repository provides
-
-ColBERT-PPI encodes two proteins independently from SaProt amino-acid/3Di
-tokens, compares their contextualized residue embeddings, and uses the
-resulting interaction matrix for two related tasks:
-
-```text
-SaProt tokens → independent protein encoders → residue embeddings
-                                                │
-                                                ├─ contact supervision
-                                                └─ protein-pair scoring
-```
-
-The publication code has a deliberately narrow scope:
-
-| Component | Publication setting |
-|---|---|
-| Training objective | Sampled bidirectional residue-contact InfoNCE only |
-| Pair representation | Residue-level late interaction |
-| Canonical PPI score | Explicit role swap, mutual top-1, top-10 sum, orientation mean |
-| Checkpoint selection | Validation data only |
-| Bundled data or weights | None |
-
-Protein-level InfoNCE, AUC surrogate losses, attention regularization,
-self-hard-negative loss and pooled single-vector scoring are not present.
-AUPRC, AUROC, MRR and Hit@K are evaluation metrics only.
-
-## Repository layout
-
-```text
-.
-├── configs/
-│   └── contact_only_example.json    # reproducible 80-epoch template
-├── docs/
-│   ├── DATA_FORMAT.md               # required local artifact schemas
-│   ├── DEVELOPMENT_DECISIONS.md     # binding implementation decisions
-│   └── RELEASE_AUDIT.md             # privacy and release checks
-├── src/colbert_ppi/
-│   ├── adapters/                    # optional LM and LoRA adapters
-│   ├── cli/                         # installed training/evaluation commands
-│   ├── config.py                    # training defaults
-│   ├── dataset.py                   # PPI datasets and batch samplers
-│   ├── model.py                     # SaProt and late-interaction model
-│   ├── protein_nucleic.py           # separate protein–nucleic task
-│   ├── retrieval.py                 # read-only retrieval scores and metrics
-│   ├── scoring.py                   # frozen canonical PPI scorer
-│   └── trainer.py                   # contact-only train/eval loops
-├── tests/
-│   └── test_contact_only_loss.py
-└── pyproject.toml
-```
-
-The project uses a standard `src` layout. Import reusable functionality from
-`colbert_ppi`; use the installed commands for experiments.
-
 ## Installation
 
 Python 3.10 or newer and a CUDA-capable PyTorch installation are recommended.
@@ -82,25 +27,75 @@ its original licence and set `saprot_dir` in the experiment configuration.
 
 ## Prepare local data
 
-No biological records are bundled. Training requires:
+No biological records are bundled. Begin with one manifest per split. Each row
+identifies a protein pair and two single-chain PDB files:
 
-1. paired protein identifiers in CSV format;
-2. pre-tokenized SaProt inputs keyed by protein identifier;
-3. Cβ coordinates keyed by protein identifier;
-4. sparse positive and negative contact labels keyed by pair identifier.
+```csv
+protein_a,protein_b,structure_a,structure_b
+complex01_A,complex01_B,structures/complex01_A.pdb,structures/complex01_B.pdb
+complex02_A,complex02_B,structures/complex02_A.pdb,structures/complex02_B.pdb
+```
 
-Keep these artifacts outside version control. Their exact schemas are defined
-in [docs/DATA_FORMAT.md](docs/DATA_FORMAT.md).
+Relative PDB paths are resolved from the manifest directory. The two structures
+in each row must be extracted from the same complex coordinate frame without
+independent rotation or translation; otherwise their cross-chain contact
+distances are invalid. Each PDB must contain exactly one recognized protein
+chain.
 
-## Train
+Install Foldseek and prepare a local SaProt checkpoint/tokenizer, then generate
+the training artifacts:
 
-Create a local configuration from the provided template:
+```bash
+colbert-ppi-prepare-data \
+  --manifest manifests/train.csv \
+  --output-dir data/processed \
+  --prefix train \
+  --saprot-dir models/SaProt_650M_PDB \
+  --foldseek-bin foldseek \
+  --positive-threshold 8 \
+  --negative-threshold 12 \
+  --max-negatives-per-pair 2048
+```
+
+Run the same command for validation and test manifests with `--prefix val` and
+`--prefix test`. For each prefix, the command writes:
+
+- `<prefix>_pairs.csv`;
+- `<prefix>_saprot_inputs.pt`;
+- `<prefix>_cb.npz`;
+- `<prefix>_contacts.pt`;
+- `<prefix>_summary.json`.
+
+The default contact definition is Cβ distance `<8 Å` for positives and `>12 Å`
+for negatives. Glycine uses Cα. Foldseek-derived 3Di and PDB residue sequences
+must agree exactly; preparation stops on a mismatch instead of silently
+misaligning contact labels.
+
+Copy the example configuration and point it to the generated files:
 
 ```bash
 cp configs/contact_only_example.json configs/local.json
 ```
 
-Edit its data and SaProt paths, then start a single-GPU run:
+For example, the training fields become:
+
+```json
+{
+  "pinder_train_csv": "data/processed/train_pairs.csv",
+  "pinder_train_saprot_inputs": "data/processed/train_saprot_inputs.pt",
+  "pinder_train_cb": "data/processed/train_cb.npz",
+  "pinder_train_contact_map": "data/processed/train_contacts.pt"
+}
+```
+
+Apply the corresponding `val_*` and `test_*` paths in `configs/local.json`.
+Keep all generated artifacts outside version control. The serialized schemas
+are documented in [docs/DATA_FORMAT.md](docs/DATA_FORMAT.md).
+
+## Train
+
+After preparing the data and editing `configs/local.json`, start a single-GPU
+run:
 
 ```bash
 colbert-ppi-train --config configs/local.json --gpu 0

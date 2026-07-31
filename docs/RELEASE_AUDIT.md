@@ -9,7 +9,7 @@ Release candidate assembled on 2026-07-31.
 - model and dataset implementations;
 - validation/test metric computation;
 - canonical bidirectional PPI scoring primitives;
-- installable `colbert_ppi` package and three user-facing CLI entry points;
+- installable `colbert_ppi` package and four user-facing CLI entry points;
 - synthetic unit tests and an example configuration.
 
 ## Excluded
@@ -25,10 +25,10 @@ Release candidate assembled on 2026-07-31.
 Verified on 2026-07-31:
 
 - Python compile check: passed;
-- synthetic contact-only tests: 2 passed;
+- contact-only and data-preparation unit tests: 4 passed;
 - Ruff source/test check: passed;
 - wheel build and package discovery: passed;
-- CLI help smoke checks: 4 passed;
+- CLI help smoke checks: 5 passed;
 - non-contact implementation scan over Python files: 0 hits;
 - absolute private path/host scan: 0 hits;
 - personal email scan: 0 hits;
@@ -36,7 +36,7 @@ Verified on 2026-07-31:
 - credential-assignment pattern scan: 0 hits;
 - symbolic links: 0;
 - files larger than 10 MiB: 0;
-- release size before Git metadata: 31 files, 335,615 bytes.
+- release size before Git metadata: 33 files, 352,818 bytes.
 
 `gitleaks` and `trufflehog` were not installed in the build environment. The
 release therefore used explicit regular-expression scans plus an allowlist

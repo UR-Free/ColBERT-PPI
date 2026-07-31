@@ -3,6 +3,21 @@
 The repository contains no biological data. Users prepare the following local
 artifacts and reference them from a JSON configuration.
 
+## Preparation manifest
+
+`colbert-ppi-prepare-data` accepts a CSV with four required columns:
+
+```csv
+protein_a,protein_b,structure_a,structure_b
+complex01_A,complex01_B,structures/complex01_A.pdb,structures/complex01_B.pdb
+```
+
+Structure paths may be absolute or relative to the manifest. Each PDB must
+contain one protein chain. Both structures in a row must retain the coordinate
+frame of the same complex so their inter-chain distances remain meaningful.
+The command uses Foldseek for 3Di extraction and writes the pair CSV, tokenized
+SaProt inputs, Cβ coordinate archive and sparse contact labels described below.
+
 ## Pair CSV
 
 The loader accepts a header containing one pair identifier column. A minimal

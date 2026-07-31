@@ -26,6 +26,7 @@ dev = [
 ]
 
 [project.scripts]
+colbert-ppi-prepare-data = "colbert_ppi.cli.prepare_data:main"
 colbert-ppi-train = "colbert_ppi.cli.train_ppi:main"
 colbert-ppi-evaluate = "colbert_ppi.cli.evaluate_ppi:main"
 colbert-ppi-train-protein-nucleic = "colbert_ppi.cli.train_protein_nucleic:main"

@@ -1,28 +1,20 @@
 """
-v8 default configuration.
+Default ColBERT-PPI training configuration.
 
 SaProt model: westlake-repl/SaProt_650M_AF2 on HuggingFace.
 Feature dim: 1280 (ESM-2 650M embedding dim).
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Optional
 
 
 @dataclass
-class V8Config:
-    # --- Model architecture ---
-    model_type: str = "colbert"  # "mlp" (default) or "colbert"
-
+class TrainingConfig:
     # --- SaProt backbone ---
     saprot_model_name: str = "westlake-repl/SaProt_650M_AF2"
     saprot_input_dim: int = 1280  # ESM-2 650M embedding dim
     saprot_dir: str = "SaProt/weights/PLMs/SaProt_650M_AF2"  # local checkpoint dir
-
-    # --- MLP model (used when model_type == "mlp") ---
-    mlp_hidden: int = 512   # hidden dim inside each ResidueMLP
-    mlp_output_dim: int = 512  # output residue embedding dim
 
     # --- ColBERT ---
     hidden_dim: int = 512
@@ -30,7 +22,7 @@ class V8Config:
     num_layers: int = 3
     dropout: float = 0.1
 
-    # --- Shared (both models) ---
+    # --- Scoring ---
     ppi_temperature: float = 0.07
 
     # --- Ablations ---
@@ -126,4 +118,4 @@ class V8Config:
     log_interval: int = 10
 
 
-DEFAULT_CONFIG = V8Config()
+DEFAULT_CONFIG = TrainingConfig()

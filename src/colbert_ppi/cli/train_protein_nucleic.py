@@ -21,15 +21,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Sampler, WeightedRandomSampler
 from torch.utils.data.distributed import DistributedSampler
 
-ROOT = Path(__file__).resolve().parents[2]
-import sys
-sys.path.insert(0, str(ROOT))
-
-from src.protein_nucleic import (  # noqa: E402
+from colbert_ppi.protein_nucleic import (
     ProteinNucleicColBERT,
     ProteinNucleicDataset,
     sampled_contact_losses,
 )
+
+PROJECT_ROOT = Path.cwd().resolve()
 
 
 @dataclass
@@ -267,7 +265,7 @@ def read_args() -> Config:
         if base_config:
             base_path = Path(base_config)
             if not base_path.is_absolute():
-                root_candidate = ROOT / base_path
+                root_candidate = PROJECT_ROOT / base_path
                 base_path = root_candidate if root_candidate.exists() else path.parent / base_path
             base_payload = load_config(base_path, seen)
             base_payload.update(payload)

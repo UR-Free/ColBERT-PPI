@@ -1,6 +1,5 @@
 {
   "data_mode": "pinder",
-  "model_type": "colbert",
   "use_lora": true,
   "sequence_only": false,
   "saprot_dir": "models/SaProt_650M_PDB",

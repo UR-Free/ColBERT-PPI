@@ -1,10 +1,9 @@
 """
-Utilities for v8 training: logging, device setup, seeding, checkpointing.
+Utilities for ColBERT-PPI training: logging, seeding and checkpointing.
 """
 from __future__ import annotations
 
 import logging
-import os
 import random
 import sys
 from datetime import datetime

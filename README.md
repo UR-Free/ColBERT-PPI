@@ -1,31 +1,150 @@
 # ColBERT-PPI
 
-[Repository](https://github.com/UR-Free/ColBERT-PPI)
+Structure-aware, residue-explicit protein-pair modelling with SaProt and late
+interaction.
 
-ColBERT-PPI is a structure-aware, residue-explicit framework for protein-pair
-scoring. Each protein is encoded independently from SaProt amino-acid/3Di
-tokens; contextualized residue embeddings are compared by late interaction to
-produce a protein-pair score and pair-conditioned regional evidence.
+[Private repository](https://github.com/UR-Free/ColBERT-PPI) ·
+[Data format](docs/DATA_FORMAT.md) ·
+[Development decisions](docs/DEVELOPMENT_DECISIONS.md) ·
+[Release audit](docs/RELEASE_AUDIT.md)
 
-## Scope
+## What this repository provides
 
-This repository contains publication-grade model, training and evaluation
-code. It deliberately excludes:
+ColBERT-PPI encodes two proteins independently from SaProt amino-acid/3Di
+tokens, compares their contextualized residue embeddings, and uses the
+resulting interaction matrix for two related tasks:
 
-- raw or processed biological datasets;
-- model checkpoints and third-party model weights;
-- training logs, machine addresses and user-specific paths;
-- manuscript drafts and unpublished reviewer correspondence.
+```text
+SaProt tokens → independent protein encoders → residue embeddings
+                                                │
+                                                ├─ contact supervision
+                                                └─ protein-pair scoring
+```
 
-The repository is private while the associated manuscript and archival release
-are prepared.
+The publication code has a deliberately narrow scope:
 
-## Contact-only optimization objective
+| Component | Publication setting |
+|---|---|
+| Training objective | Sampled bidirectional residue-contact InfoNCE only |
+| Pair representation | Residue-level late interaction |
+| Canonical PPI score | Explicit role swap, mutual top-1, top-10 sum, orientation mean |
+| Checkpoint selection | Validation data only |
+| Bundled data or weights | None |
 
-The sole optimization objective is sampled bidirectional residue-contact
-InfoNCE. For each complex, the loader samples up to five labelled contact pairs
-and five labelled non-contact pairs. The first \(N_+\) entries are matched
-positive residue pairs:
+Protein-level InfoNCE, AUC surrogate losses, attention regularization,
+self-hard-negative loss and pooled single-vector scoring are not present.
+AUPRC, AUROC, MRR and Hit@K are evaluation metrics only.
+
+## Repository layout
+
+```text
+.
+├── configs/
+│   └── contact_only_example.json    # reproducible 80-epoch template
+├── docs/
+│   ├── DATA_FORMAT.md               # required local artifact schemas
+│   ├── DEVELOPMENT_DECISIONS.md     # binding implementation decisions
+│   └── RELEASE_AUDIT.md             # privacy and release checks
+├── src/colbert_ppi/
+│   ├── adapters/                    # optional LM and LoRA adapters
+│   ├── cli/                         # installed training/evaluation commands
+│   ├── config.py                    # training defaults
+│   ├── dataset.py                   # PPI datasets and batch samplers
+│   ├── model.py                     # SaProt and late-interaction model
+│   ├── protein_nucleic.py           # separate protein–nucleic task
+│   ├── retrieval.py                 # read-only retrieval scores and metrics
+│   ├── scoring.py                   # frozen canonical PPI scorer
+│   └── trainer.py                   # contact-only train/eval loops
+├── tests/
+│   └── test_contact_only_loss.py
+└── pyproject.toml
+```
+
+The project uses a standard `src` layout. Import reusable functionality from
+`colbert_ppi`; use the installed commands for experiments.
+
+## Installation
+
+Python 3.10 or newer and a CUDA-capable PyTorch installation are recommended.
+
+```bash
+git clone https://github.com/UR-Free/ColBERT-PPI.git
+cd ColBERT-PPI
+
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+SaProt weights are not redistributed. Download the required checkpoint under
+its original licence and set `saprot_dir` in the experiment configuration.
+
+## Prepare local data
+
+No biological records are bundled. Training requires:
+
+1. paired protein identifiers in CSV format;
+2. pre-tokenized SaProt inputs keyed by protein identifier;
+3. Cβ coordinates keyed by protein identifier;
+4. sparse positive and negative contact labels keyed by pair identifier.
+
+Keep these artifacts outside version control. Their exact schemas are defined
+in [docs/DATA_FORMAT.md](docs/DATA_FORMAT.md).
+
+## Train
+
+Create a local configuration from the provided template:
+
+```bash
+cp configs/contact_only_example.json configs/local.json
+```
+
+Edit its data and SaProt paths, then start a single-GPU run:
+
+```bash
+colbert-ppi-train --config configs/local.json --gpu 0
+```
+
+For two GPUs:
+
+```bash
+colbert-ppi-train --config configs/local.json --gpu 0,1
+```
+
+The template uses 80 epochs, validation-only checkpoint selection and no
+per-epoch test evaluation. Outputs are written beneath `outputs/`, which is
+ignored by Git.
+
+## Evaluate a frozen checkpoint
+
+```bash
+colbert-ppi-evaluate \
+  --run-dir outputs/run_YYYYMMDD_HHMMSS \
+  --checkpoint best_model.pt \
+  --split test \
+  --labels data/processed/test_labels.npz \
+  --output-dir results/test
+```
+
+The evaluator writes `scores.npz` and `metrics.json`. It explicitly evaluates
+both role assignments, applies mutual row/column top-`k=1` filtering, sums the
+largest `N=10` retained similarities and averages the two orientation scores.
+The implementation lives in
+[`src/colbert_ppi/scoring.py`](src/colbert_ppi/scoring.py).
+
+Protein–protein and protein–nucleic protocols are separate. The optional
+protein–nucleic entry point is:
+
+```bash
+colbert-ppi-train-protein-nucleic --config path/to/config.json
+```
+
+## Contact-only objective
+
+For each complex, the loader samples labelled contact and non-contact residue
+pairs. If the first \(N_+\) entries are matched positives, the sole optimized
+objective is:
 
 \[
 \mathcal{L}_{contact} =
@@ -36,62 +155,31 @@ positive residue pairs:
 \right].
 \]
 
-There is no protein-level InfoNCE, auxiliary ranking surrogate, attention
-regularizer, self-hard-negative objective or pooled single-vector path. AUPRC,
-AUROC, MRR and Hit@K are evaluation metrics only.
-
-## Installation
-
-Python 3.10 or newer and a CUDA-capable PyTorch installation are recommended.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-SaProt weights are not redistributed. Download an upstream SaProt checkpoint
-under its original license and set `saprot_dir` in the experiment config.
-
-## Data preparation
-
-No biological records are bundled. A training example requires:
-
-1. a CSV containing paired protein identifiers;
-2. pre-tokenized SaProt inputs keyed by protein identifier;
-3. Cβ coordinates keyed by protein identifier;
-4. sparse contact labels keyed by pair identifier.
-
-The exact schemas are documented in [docs/DATA_FORMAT.md](docs/DATA_FORMAT.md).
-
-## Training
-
-Copy and edit the example configuration, then run:
-
-```bash
-python scripts/train.py \
-  --config configs/contact_only_example.json \
-  --gpu 0
-```
-
-Training always uses contact InfoNCE. Evaluation always uses residue-level late
-interaction.
-
-## Evaluation
-
-The frozen publication PPI scorer is implemented in
-`scripts/analysis/canonical_scoring.py`: it evaluates both role assignments
-explicitly, applies mutual-top-1/top-10 within each assignment, and averages
-the two orientation scores.
+No protein-level or single-vector objective contributes to the gradient.
 
 ## Reproducibility and claim boundary
 
-- Checkpoints are selected using validation data only.
-- Test data must not be used for checkpoint or operating-point selection.
-- Protein–protein and protein–nucleic evaluation protocols are separate.
-- The code supports a system-level joint capability claim; it does not by
-  itself identify a causal accuracy advantage of late interaction.
+- Select checkpoints and scoring parameters on validation data only.
+- Evaluate the test split once after all choices are frozen.
+- Keep protein–protein and protein–nucleic protocols separate.
+- Treat late interaction as a system capability in this release; this code
+  alone does not establish a causal ranking advantage over single-vector
+  baselines.
 
-See [docs/DEVELOPMENT_DECISIONS.md](docs/DEVELOPMENT_DECISIONS.md) for binding
-implementation decisions and [docs/RELEASE_AUDIT.md](docs/RELEASE_AUDIT.md) for
-the release audit.
+## Development checks
+
+```bash
+python -m compileall -q src tests
+pytest -q
+ruff check src tests
+```
+
+The repository intentionally excludes datasets, checkpoints, third-party
+weights, logs, machine addresses, user-specific paths, manuscripts and reviewer
+correspondence. Report security or privacy concerns using
+[SECURITY.md](SECURITY.md).
+
+## Citation and licence
+
+Citation metadata are provided in [CITATION.cff](CITATION.cff). See
+[LICENSE](LICENSE) for the current software-use terms.

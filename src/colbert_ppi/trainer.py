@@ -1,23 +1,8 @@
-"""
-Training and evaluation loops for v8 SaProt ColBERT PPI model.
+"""Contact-only training and read-only evaluation for ColBERT-PPI.
 
-The only training objective is residue-contact CLIP / InfoNCE.
-
-Pipeline:
-  1. Full sequences → FlashAttentionEncoder → contextualised residue embeddings
-  2. Sample positive (CB < 8Å) and negative (CB > 12Å) residue pairs from contact matrix
-  3. Build cross-chain similarity matrix with learnable temperature
-  4. Bidirectional InfoNCE loss (v1-style clip_loss)
-
-Mutual top-k PPI scoring is computed for evaluation only (no PPI loss):
-  bidirectional residue logits → mutual top-10 filter → top-20 sum.
-
-Key functions:
-  - _sample_contact_pairs: extract pos/neg residue embeddings from contact matrix
-  - _residue_clip_loss:   v1-style bidirectional InfoNCE on residue similarity matrix
-  - compute_batch_losses:  per-batch forward + contact-only loss
-  - run_train_epoch:       single training epoch
-  - run_eval_epoch:        validation epoch with retrieval metrics
+The training path samples positive and negative residue pairs from labelled
+contact matrices and optimizes bidirectional residue-contact InfoNCE. PPI
+retrieval scores and metrics are computed only during evaluation.
 """
 
 from __future__ import annotations
@@ -33,7 +18,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from .losses import (
+from .retrieval import (
     mutual_topk_ppi_scores,
     compute_retrieval_metrics,
 )
@@ -191,19 +176,17 @@ def _sample_contact_pairs(
 # Residue-level CLIP / InfoNCE loss  (v1-style)
 # ===========================================================================
 
-def _residue_clip_loss(
+def _bidirectional_contact_loss(
     logits: torch.Tensor,
     num_pos: int,
 ) -> torch.Tensor:
-    """Bidirectional InfoNCE / CLIP loss on a residue similarity matrix.
+    """Bidirectional contact InfoNCE on a residue similarity matrix.
 
     Assumes the first num_pos rows AND cols correspond to positive pairs
     arranged on the diagonal.  Logits are expected to already include
     temperature scaling.
 
     Loss = 0.5 * (CE(rows[:num_pos]) + CE(cols[:num_pos]))
-
-    This mirrors v1's clip_loss but operates on a single pre-scaled matrix.
 
     Parameters
     ----------
@@ -296,7 +279,7 @@ def compute_batch_losses(
                 all_w2 = torch.cat([pos_w2, neg_w2])
                 logits = logits * all_w1.unsqueeze(1) * all_w2.unsqueeze(0)
             logits = logits * inv_temp.to(dtype=logits.dtype)
-            contact_loss = _residue_clip_loss(logits, num_pos)
+            contact_loss = _bidirectional_contact_loss(logits, num_pos)
 
     return {
         "loss": contact_loss,
@@ -409,8 +392,6 @@ def run_eval_epoch(
     total_contact_loss = 0.0
     n_batches = 0
     use_ddp = dist.is_available() and dist.is_initialized()
-    rank = dist.get_rank() if use_ddp else 0
-    world_size = dist.get_world_size() if use_ddp else 1
 
     # Collect all encoded proteins for retrieval evaluation (single-GPU only)
     # In DDP mode, skip collection to avoid wasting memory.

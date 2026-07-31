@@ -15,13 +15,11 @@ from __future__ import annotations
 
 import csv
 import re
-import warnings
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, Sampler
 
@@ -531,7 +529,7 @@ class SaProtLoRAContactDataset(Dataset):
         if not self.saprot_inputs_pt.exists():
             raise FileNotFoundError(
                 f"Tokenized SaProt inputs not found: {self.saprot_inputs_pt}. "
-                "Re-run pre_extract.py (v8) to generate them."
+                "Prepare the tokenized inputs described in docs/DATA_FORMAT.md."
             )
 
         requested_labels = {a for a, b in self.samples} | {b for a, b in self.samples}
@@ -1524,7 +1522,7 @@ class SaProtLoRAContactDatasetV3(Dataset):
         pair_ids = []
         with self.pair_csv.open("r", newline="") as fh:
             reader = csv.reader(fh)
-            header = next(reader, None)  # skip header
+            next(reader, None)  # skip header
             for row in reader:
                 if not row:
                     continue

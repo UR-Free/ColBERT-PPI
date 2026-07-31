@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from src.trainer import compute_batch_losses
+from colbert_ppi.trainer import compute_batch_losses
 
 
 class TinyContactModel(torch.nn.Module):

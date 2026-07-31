@@ -1,5 +1,5 @@
 """
-v8 ColBERTPPIModel — SaProt backbone + FlashAttentionEncoder + ColBERT late interaction.
+ColBERTPPIModel — SaProt backbone + FlashAttentionEncoder + ColBERT late interaction.
 
 Architecture:
   1. SaProt (frozen, pre-extracted) → per-residue representations (1280-dim)
@@ -16,7 +16,6 @@ and loaded from disk (see pre_extract.py).  This keeps training efficient.
 from __future__ import annotations
 
 import math
-import sys
 import copy
 from pathlib import Path
 from typing import Optional
@@ -243,7 +242,7 @@ class ResidueMLP(nn.Module):
 
 
 # ===========================================================================
-# Main PPI Model  (FlashAttention-based, original v8)
+# Main PPI model
 # ===========================================================================
 
 class ColBERTPPIModel(nn.Module):
@@ -492,9 +491,8 @@ def create_model(model_type: str, **kwargs) -> nn.Module:
     Parameters
     ----------
     model_type : str
-        "mlp"         → PPIMLPModel (v1-style R_MLP / L_MLP projectors)
-        "colbert"     → ColBERTPPIModel (FlashAttention encoder + side indicator)
-        "colbert_lora"→ ColBERTPPIModelWithLoRA (SaProt+LoRA backbone + FlashAttention)
+        ``"colbert"`` builds the pre-extracted-feature model;
+        ``"colbert_lora"`` builds the live SaProt+LoRA model.
     **kwargs
         Forwarded to the model constructor.
 
@@ -503,17 +501,13 @@ def create_model(model_type: str, **kwargs) -> nn.Module:
     nn.Module
     """
     model_type = model_type.lower().strip()
-    if model_type == "mlp":
-        return PPIMLPModel(**kwargs)
-    elif model_type == "colbert":
+    if model_type == "colbert":
         return ColBERTPPIModel(**kwargs)
-    elif model_type == "colbert_lora":
+    if model_type == "colbert_lora":
         return ColBERTPPIModelWithLoRA(**kwargs)
-    else:
-        raise ValueError(
-            f"Unknown model_type '{model_type}'. "
-            f"Supported: 'mlp', 'colbert', 'colbert_lora'."
-        )
+    raise ValueError(
+        f"Unknown model_type '{model_type}'. Supported: 'colbert', 'colbert_lora'."
+    )
 
 
 # ===========================================================================
@@ -687,8 +681,6 @@ class ColBERTPPIModelWithLoRA(ColBERTPPIModel):
         -------
         Same as ColBERTPPIModel.forward.
         """
-        B = input_ids1.size(0)
-
         if self.sequence_only:
             input_ids1 = self.sequence_only_token_map[input_ids1]
             input_ids2 = self.sequence_only_token_map[input_ids2]

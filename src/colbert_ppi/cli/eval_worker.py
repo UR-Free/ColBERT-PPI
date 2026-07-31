@@ -15,7 +15,7 @@ Communication protocol (socket-based, 127.0.0.1:29599):
 Results are still written to disk (output_dir) for train.py to discover.
 
 Usage:
-  python eval_worker.py --output_dir outputs/run_xxx --eval_gpu 4
+  python -m colbert_ppi.cli.eval_worker --output_dir outputs/run_xxx --eval_gpu 4
 """
 from __future__ import annotations
 
@@ -23,30 +23,25 @@ import argparse
 import csv
 import json
 import logging
-import os
 import socket
 import sys
 import time
 from pathlib import Path
 from typing import Optional
 
-# Ensure v8/ is on sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 import torch
 from torch.utils.data import DataLoader
 
-from src.config import V8Config
-from src.dataset import (
+from colbert_ppi.dataset import (
     SaProtContactDataset,
     SaProtLoRAContactDataset,
     SaProtLoRAExplicitContactDataset,
 )
-from src.eval_labels import collapse_retrieval_by_uniprot, load_positive_mask
-from src.losses import compute_retrieval_metrics
-from src.model import create_model
-from src.trainer import run_eval_epoch
-from src.utils import set_seed, setup_logging
+from colbert_ppi.eval_labels import collapse_retrieval_by_uniprot, load_positive_mask
+from colbert_ppi.retrieval import compute_retrieval_metrics
+from colbert_ppi.model import create_model
+from colbert_ppi.trainer import run_eval_epoch
+from colbert_ppi.utils import set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +114,7 @@ def add_uniprot_collapse_metrics(
 
 def build_model_from_args(args: dict, device: torch.device) -> torch.nn.Module:
     """Rebuild the model from the serialised training args dict."""
-    model_type = "colbert_lora" if args.get("use_lora", False) else args.get("model_type", "colbert")
+    model_type = "colbert_lora" if args.get("use_lora", False) else "colbert"
     model_kwargs = dict(
         input_dim=args.get("input_dim", 1280),
         ppi_temperature=args.get("ppi_temperature", 0.07),
@@ -137,12 +132,7 @@ def build_model_from_args(args: dict, device: torch.device) -> torch.nn.Module:
             sequence_only=args.get("sequence_only", False),
             untied_encoder=args.get("untied_encoder", False),
         )
-    elif model_type == "mlp":
-        model_kwargs.update(
-            mlp_hidden=args.get("mlp_hidden", 512),
-            output_dim=args.get("mlp_output_dim", 512),
-        )
-    else:  # colbert
+    else:
         model_kwargs.update(
             hidden_dim=args.get("hidden_dim", 256),
             num_heads=args.get("num_heads", 4),
@@ -154,9 +144,9 @@ def build_model_from_args(args: dict, device: torch.device) -> torch.nn.Module:
     return model
 
 
-def load_val_dataset(args: dict, v8_root: Path):
+def load_val_dataset(args: dict, project_root: Path):
     """Load the full (non-distributed) validation dataset."""
-    data_dir = v8_root / args.get("data_dir", "data")
+    data_dir = project_root / args.get("data_dir", "data")
     DatasetClass = SaProtLoRAContactDataset if args.get("use_lora", False) else SaProtContactDataset
 
     if args.get("val_contact_map"):
@@ -187,9 +177,9 @@ def load_val_dataset(args: dict, v8_root: Path):
     return dataset
 
 
-def load_test_dataset(args: dict, v8_root: Path):
+def load_test_dataset(args: dict, project_root: Path):
     """Load the full (non-distributed) test dataset."""
-    data_dir = v8_root / args.get("data_dir", "data")
+    data_dir = project_root / args.get("data_dir", "data")
     DatasetClass = SaProtLoRAContactDataset if args.get("use_lora", False) else SaProtContactDataset
 
     if args.get("test_contact_map"):
@@ -261,7 +251,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
         train_args = json.load(f)
     logger.info(f"Loaded training config from {args_path}")
 
-    v8_root = Path(__file__).resolve().parent.parent
+    project_root = Path.cwd().resolve()
 
     # --- Build model ---
     logger.info("Building model for evaluation...")
@@ -270,7 +260,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
 
     # --- Load validation dataset ---
     logger.info("Loading validation dataset...")
-    val_dataset = load_val_dataset(train_args, v8_root)
+    val_dataset = load_val_dataset(train_args, project_root)
     logger.info(f"Val dataset: {len(val_dataset)} pairs")
     val_positive_mask = None
     if train_args.get("val_calibrated_pairs"):
@@ -304,7 +294,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
     test_score_mask1 = None
     if run_test_each_epoch:
         logger.info("Loading test dataset...")
-        test_dataset = load_test_dataset(train_args, v8_root)
+        test_dataset = load_test_dataset(train_args, project_root)
         logger.info(f"Test dataset: {len(test_dataset)} pairs")
         if train_args.get("test_calibrated_pairs"):
             test_positive_mask = load_positive_mask(

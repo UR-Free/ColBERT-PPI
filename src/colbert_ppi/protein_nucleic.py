@@ -15,7 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
-from src.model import FlashAttentionEncoder
+from .model import FlashAttentionEncoder
 
 
 @dataclass
@@ -271,13 +271,13 @@ class ProteinNucleicColBERT(nn.Module):
         elif self.nucleic_model_type == "omnibiote":
             if not omnibiote_checkpoint:
                 raise ValueError("omnibiote_checkpoint is required for nucleic_model_type='omnibiote'")
-            from src.omnibiote_adapter import OmniBioTEBackbone
+            from .adapters.omnibiote import OmniBioTEBackbone
             self.rinalmo = OmniBioTEBackbone(omnibiote_checkpoint, omnibiote_code_dir)
             nucleic_hidden_size = self.rinalmo.hidden_size
         elif self.nucleic_model_type == "ernie_rna":
             if not ernie_rna_checkpoint:
                 raise ValueError("ernie_rna_checkpoint is required for nucleic_model_type='ernie_rna'")
-            from src.ernie_rna_adapter import ERNIERNABackbone
+            from .adapters.ernie_rna import ERNIERNABackbone
             self.rinalmo = ERNIERNABackbone(
                 ernie_rna_checkpoint,
                 ernie_rna_code_dir,
@@ -313,7 +313,7 @@ class ProteinNucleicColBERT(nn.Module):
         for p in self.rinalmo.parameters():
             p.requires_grad = False
         if self.nucleic_lora_enabled:
-            from src.lora_adapters import inject_lora_linear_layers
+            from .adapters.lora import inject_lora_linear_layers
             if self.nucleic_model_type == "omnibiote":
                 target_modules = ["c_attn", "c_proj", "c_fc"]
             elif self.nucleic_model_type == "ernie_rna":

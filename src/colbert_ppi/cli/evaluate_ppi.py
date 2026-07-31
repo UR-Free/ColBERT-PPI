@@ -4,22 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-
-from scripts.analysis.canonical_scoring import canonical_score_dataset  # noqa: E402
-from scripts.eval_worker import (  # noqa: E402
+from colbert_ppi.cli.eval_worker import (
     build_model_from_args,
     load_test_dataset,
     load_val_dataset,
 )
-from src.utils import set_seed  # noqa: E402
+from colbert_ppi.scoring import canonical_score_dataset
+from colbert_ppi.utils import set_seed
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +28,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path.cwd(),
+        help="Base directory used to resolve relative data paths (default: current directory)",
+    )
     return parser.parse_args()
 
 
@@ -51,9 +53,9 @@ def main() -> int:
     model.eval()
 
     dataset = (
-        load_val_dataset(train_args, ROOT)
+        load_val_dataset(train_args, args.project_root.resolve())
         if args.split == "val"
-        else load_test_dataset(train_args, ROOT)
+        else load_test_dataset(train_args, args.project_root.resolve())
     )
     label_archive = np.load(args.labels, allow_pickle=False)
     labels = np.asarray(label_archive[args.label_key], dtype=bool)

@@ -25,11 +25,18 @@ dev = [
   "ruff>=0.9"
 ]
 
+[project.scripts]
+colbert-ppi-train = "colbert_ppi.cli.train_ppi:main"
+colbert-ppi-evaluate = "colbert_ppi.cli.evaluate_ppi:main"
+colbert-ppi-train-protein-nucleic = "colbert_ppi.cli.train_protein_nucleic:main"
+
 [tool.setuptools.packages.find]
-include = ["src*"]
+where = ["src"]
+include = ["colbert_ppi*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100

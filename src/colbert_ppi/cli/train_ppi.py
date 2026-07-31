@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """
-v8 SaProt ColBERT PPI training entry point.
+ColBERT-PPI training entry point.
 
-Pipeline:
-  1. Pre-extract SaProt features:  python pre_extract.py
-  2. Train:                        python train.py
-
-Training uses residue-contact InfoNCE exclusively. Evaluation uses
-residue-level late interaction exclusively.
+Training uses residue-contact InfoNCE exclusively. Evaluation uses residue-level
+late interaction exclusively.
 """
 from __future__ import annotations
 
@@ -24,17 +20,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-# Ensure v8/ is on sys.path so `from src.xxx` imports work
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler, Subset
 
-from src.config import V8Config
-from src.dataset import (
+from colbert_ppi.config import TrainingConfig
+from colbert_ppi.dataset import (
     EntityUniqueDistributedBatchSampler,
     MixedContactDataset,
     MixedStructureContactDataset,
@@ -43,13 +36,13 @@ from src.dataset import (
     SaProtLoRAContactDataset,
     SaProtLoRAContactDatasetV3,
 )
-from src.eval_labels import load_positive_mask
-from src.model import create_model
-from src.trainer import (
+from colbert_ppi.eval_labels import load_positive_mask
+from colbert_ppi.model import create_model
+from colbert_ppi.trainer import (
     run_train_epoch,
     run_eval_epoch,
 )
-from src.utils import (
+from colbert_ppi.utils import (
     count_parameters,
     create_grad_scaler,
     create_scheduler,
@@ -66,30 +59,31 @@ logger = logging.getLogger(__name__)
 # CLI
 # ---------------------------------------------------------------------------
 
-def parse_args(cfg: Optional[V8Config] = None) -> argparse.Namespace:
-    """Parse CLI args with defaults pulled from V8Config (single source of truth).
+def parse_args(cfg: Optional[TrainingConfig] = None) -> argparse.Namespace:
+    """Parse CLI arguments with defaults pulled from :class:`TrainingConfig`.
 
     Parameters
     ----------
-    cfg : V8Config, optional
-        If provided, used as the default base.  Otherwise V8Config() is used.
+    cfg : TrainingConfig, optional
+        If provided, use it as the default base. Otherwise create a default
+        ``TrainingConfig``.
 
     Returns
     -------
     argparse.Namespace
     """
     if cfg is None:
-        cfg = V8Config()
+        cfg = TrainingConfig()
 
     parser = argparse.ArgumentParser(
-        description="v8 SaProt ColBERT PPI Training — defaults from src/config.py"
+        description="Train ColBERT-PPI with residue-contact supervision."
     )
 
-    # Optional JSON config file to override V8Config fields
+    # Optional JSON config file to override TrainingConfig fields
     parser.add_argument("--config", type=str, default=None,
-                        help="JSON file with V8Config overrides")
+                        help="JSON file with TrainingConfig overrides")
 
-    # Data — paths default from V8Config; no longer required on CLI
+    # Data paths default from TrainingConfig and may be overridden on the CLI.
     parser.add_argument("--data_mode", type=str,
                         default=getattr(cfg, "data_mode", "ddi"),
                         choices=["ddi", "pinder", "mix", "pinder_structure_mix"],
@@ -135,14 +129,7 @@ def parse_args(cfg: Optional[V8Config] = None) -> argparse.Namespace:
                         help="Optional explicit sparse contact labels for test")
 
     # Model
-    parser.add_argument("--model_type", type=str, default=cfg.model_type,
-                        choices=["mlp", "colbert"],
-                        help="Model architecture: 'mlp' (default) or 'colbert'")
     parser.add_argument("--input_dim", type=int, default=cfg.saprot_input_dim)
-    # MLP model
-    parser.add_argument("--mlp_hidden", type=int, default=cfg.mlp_hidden)
-    parser.add_argument("--mlp_output_dim", type=int, default=cfg.mlp_output_dim)
-    # ColBERT model
     parser.add_argument("--hidden_dim", type=int, default=cfg.hidden_dim)
     parser.add_argument("--num_heads", type=int, default=cfg.num_heads)
     parser.add_argument("--num_layers", type=int, default=cfg.num_layers)
@@ -228,8 +215,8 @@ def parse_args(cfg: Optional[V8Config] = None) -> argparse.Namespace:
         type=str,
         default="",
         help=(
-            "Optional repository-relative asynchronous evaluator. Empty keeps "
-            "scripts/eval_worker.py; confirmatory protocols may provide a frozen "
+            "Optional repository-relative asynchronous evaluator. Empty uses the "
+            "built-in worker; confirmatory protocols may provide a frozen "
             "validation-only evaluator."
         ),
     )
@@ -318,7 +305,7 @@ def parse_args(cfg: Optional[V8Config] = None) -> argparse.Namespace:
         if config_path.exists():
             with config_path.open("r") as fh:
                 json_overrides = json.load(fh)
-            # Only set attributes that are still at their V8Config default
+            # Only set attributes that are still at their TrainingConfig default
             cfg_dict = {k: v for k, v in vars(cfg).items() if not k.startswith("_")}
             for key, val in json_overrides.items():
                 if key in cfg_dict and getattr(args, key) == cfg_dict[key]:
@@ -403,26 +390,34 @@ def _spawn_eval_worker(
     if worker_script:
         worker_path = Path(worker_script)
         if not worker_path.is_absolute():
-            worker_path = Path(__file__).resolve().parent.parent / worker_path
+            worker_path = Path.cwd() / worker_path
         worker_path = worker_path.resolve()
+        if not worker_path.is_file():
+            raise FileNotFoundError(f"Evaluation worker not found: {worker_path}")
+        command = [python_bin, str(worker_path)]
+        worker_label = str(worker_path)
     else:
-        worker_path = Path(__file__).resolve().parent / "eval_worker.py"
-    if not worker_path.is_file():
-        raise FileNotFoundError(f"Evaluation worker not found: {worker_path}")
+        command = [python_bin, "-m", "colbert_ppi.cli.eval_worker"]
+        worker_label = "colbert_ppi.cli.eval_worker"
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(eval_gpu)
     proc = subprocess.Popen(
-        [python_bin, str(worker_path),
-         "--output_dir", str(output_dir),
-         "--eval_gpu", str(eval_gpu),
-         "--eval_port", str(eval_port)],
+        [
+            *command,
+            "--output_dir",
+            str(output_dir),
+            "--eval_gpu",
+            str(eval_gpu),
+            "--eval_port",
+            str(eval_port),
+        ],
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,  # setsid — survives parent exit
     )
     logger.info(
-        f"Spawned eval worker (PID={proc.pid}) on GPU {eval_gpu}: {worker_path}"
+        f"Spawned eval worker (PID={proc.pid}) on GPU {eval_gpu}: {worker_label}"
     )
     return proc
 
@@ -606,9 +601,8 @@ def _run_worker(
     start_time = datetime.now().astimezone()
     run_id = start_time.strftime("run_%Y%m%d_%H%M%S") if main_rank else ""
     run_id = _broadcast_object(run_id, src=0)
-    # Resolve output_dir relative to v8 project root (not cwd)
-    v8_root = Path(__file__).resolve().parent.parent  # v8/
-    output_dir = (v8_root / args.output_dir / run_id).resolve()
+    project_root = Path.cwd().resolve()
+    output_dir = (project_root / args.output_dir / run_id).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     setup_logging(logger, output_dir, enable=main_rank)
     if not main_rank:
@@ -616,7 +610,7 @@ def _run_worker(
 
     if main_rank:
         logger.info("=" * 60)
-        logger.info("v8 SaProt ColBERT PPI Training")
+        logger.info("ColBERT-PPI training")
         logger.info(f"Run ID: {run_id}")
         logger.info(f"Device: {device}")
         logger.info(f"World size: {world_size}")
@@ -671,7 +665,7 @@ def _run_worker(
             logger.info(f"Async eval worker launched on GPU {eval_gpu}")
 
     # --- Datasets ---
-    data_dir = v8_root / args.data_dir
+    data_dir = project_root / args.data_dir
     prefix = args.processed_prefix
 
     DatasetClass = SaProtLoRAContactDataset if args.use_lora else SaProtContactDataset
@@ -990,7 +984,7 @@ def _run_worker(
             logger.info(f"Sync val: {len(val_dataset)} pairs, feat_dim={val_dataset.feat_dim}")
 
     # --- Model ---
-    effective_model_type = "colbert_lora" if args.use_lora else args.model_type
+    effective_model_type = "colbert_lora" if args.use_lora else "colbert"
     if main_rank:
         logger.info(f"Building model (type={effective_model_type})...")
     model_kwargs = dict(
@@ -1010,12 +1004,7 @@ def _run_worker(
             sequence_only=args.sequence_only,
             untied_encoder=args.untied_encoder,
         )
-    elif args.model_type == "mlp":
-        model_kwargs.update(
-            mlp_hidden=args.mlp_hidden,
-            output_dim=args.mlp_output_dim,
-        )
-    else:  # colbert
+    else:
         model_kwargs.update(
             hidden_dim=args.hidden_dim,
             num_heads=args.num_heads,

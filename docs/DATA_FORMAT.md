@@ -45,6 +45,14 @@ Indices are zero-based and must already be projected into the residue
 coordinates used by the corresponding monomer inputs. Unlabelled residue pairs
 are ignored.
 
+## Retrieval label matrix
+
+`colbert-ppi-evaluate` reads a Boolean matrix from an NPZ archive. By default,
+the array key is `labels`; use `--label-key` to select another key. For a split
+with \(N\) dataset records, the matrix must have shape `(N, N)` and follow the
+exact CSV record order. Entry `(i, j)` indicates whether receptor-side record
+`i` and ligand-side record `j` form a positive interaction.
+
 ## Privacy
 
 Do not place access tokens, human-subject identifiers, private server paths or

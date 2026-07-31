@@ -17,8 +17,6 @@ import torch
 from sklearn.metrics import average_precision_score
 from torch.utils.data import DataLoader
 
-
-ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_K = 1
 CANONICAL_N = 10
 SELECTION_METRIC = "val_t02_collapsed_orientation_mean_auprc"

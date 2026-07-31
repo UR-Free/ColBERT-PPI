@@ -275,6 +275,12 @@ def parse_args(cfg: Optional[TrainingConfig] = None) -> argparse.Namespace:
     parser.add_argument("--lora_r", type=int, default=cfg.lora_r)
     parser.add_argument("--lora_alpha", type=int, default=cfg.lora_alpha)
     parser.add_argument("--lora_dropout", type=float, default=cfg.lora_dropout)
+    parser.add_argument(
+        "--gradient_checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=getattr(cfg, "gradient_checkpointing", False),
+        help="Checkpoint SaProt activations to reduce training memory",
+    )
     parser.add_argument("--saprot_dir", type=str, default=cfg.saprot_dir,
                         help="Local SaProt HuggingFace checkpoint directory")
     parser.add_argument("--train_saprot_inputs", type=str,
@@ -1027,6 +1033,7 @@ def _run_worker(
             hidden_dim=args.hidden_dim,
             dropout=args.dropout,
             sequence_only=args.sequence_only,
+            gradient_checkpointing=args.gradient_checkpointing,
         )
     else:
         model_kwargs.update(

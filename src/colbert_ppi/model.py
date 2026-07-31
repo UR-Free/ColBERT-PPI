@@ -298,6 +298,7 @@ class ColBERTPPIModelWithLoRA(ColBERTPPIModel):
         dropout: float = 0.1,
         ppi_temperature: float = 0.07,
         sequence_only: bool = False,
+        gradient_checkpointing: bool = False,
     ):
         # Determine input_dim from SaProt config
         from transformers import EsmConfig, EsmForMaskedLM
@@ -310,6 +311,7 @@ class ColBERTPPIModelWithLoRA(ColBERTPPIModel):
         nn.Module.__init__(self)
         self.hidden_dim = hidden_dim
         self.sequence_only = bool(sequence_only)
+        self.gradient_checkpointing = bool(gradient_checkpointing)
 
         # Build a vocabulary-derived 3Di -> "#" token remapping rather than
         # relying on checkpoint-specific numeric token IDs.
@@ -357,6 +359,11 @@ class ColBERTPPIModelWithLoRA(ColBERTPPIModel):
         self.saprot_backbone.esm = get_peft_model(
             self.saprot_backbone.esm, peft_config
         )
+        if self.gradient_checkpointing:
+            self.saprot_backbone.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False}
+            )
+            self.saprot_backbone.enable_input_require_grads()
 
         # Two direct residue-wise mappings; no post-SaProt Transformer.
         self.query_projector = ResidueMLP(

@@ -105,6 +105,7 @@ class TrainingConfig:
     lora_r: int = 8              # LoRA rank
     lora_alpha: int = 8          # LoRA scaling factor
     lora_dropout: float = 0.1    # LoRA dropout
+    gradient_checkpointing: bool = False
 
     # --- Compile ---
     compile_model: bool = False  # torch.compile (disabled by default — CUDA graph hangs on A100)

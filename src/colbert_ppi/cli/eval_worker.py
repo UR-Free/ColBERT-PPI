@@ -127,6 +127,7 @@ def build_model_from_args(args: dict, device: torch.device) -> torch.nn.Module:
             hidden_dim=args.get("hidden_dim", 256),
             dropout=args.get("dropout", 0.1),
             sequence_only=args.get("sequence_only", False),
+            gradient_checkpointing=args.get("gradient_checkpointing", False),
         )
     else:
         model_kwargs.update(

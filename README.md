@@ -117,7 +117,7 @@ no post-SaProt Transformer or residue-weight MLP. When
 `save_epoch_components` is enabled, each epoch stores a lightweight LoRA plus
 two-head checkpoint under `epoch_components/`.
 
-The example uses a physical batch size of 12 with SaProt activation gradient
+The example uses a physical batch size of 24 with SaProt activation gradient
 checkpointing. This recomputes backbone activations during backpropagation to
 reduce memory; it does not use micro-batching or gradient accumulation.
 

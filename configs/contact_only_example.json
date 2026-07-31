@@ -18,7 +18,7 @@
   "hidden_dim": 512,
   "dropout": 0.1,
   "ppi_temperature": 0.07,
-  "batch_size": 12,
+  "batch_size": 24,
   "lr": 0.0001,
   "weight_decay": 0.000001,
   "warmup_epochs": 0,

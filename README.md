@@ -1,5 +1,7 @@
 # ColBERT-PPI
 
+[Repository](https://github.com/UR-Free/ColBERT-PPI)
+
 ColBERT-PPI is a structure-aware, residue-explicit framework for protein-pair
 scoring. Each protein is encoded independently from SaProt amino-acid/3Di
 tokens; contextualized residue embeddings are compared by late interaction to

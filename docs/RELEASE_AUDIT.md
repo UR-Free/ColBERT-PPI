@@ -39,4 +39,6 @@ release therefore used explicit regular-expression scans plus an allowlist
 review of every tracked path. No data, checkpoints or binary model artifacts
 are present.
 
-The repository visibility must be verified as private after upload.
+The uploaded repository was verified as private at
+`https://github.com/UR-Free/ColBERT-PPI`; its remote `main` commit matched the
+local release commit exactly.

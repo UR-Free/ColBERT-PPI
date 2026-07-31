@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the associated ColBERT-PPI article."
+title: "ColBERT-PPI"
+type: software
+version: 0.1.0
+date-released: 2026-07-31
+authors:
+  - name: "ColBERT-PPI Authors"
+repository-code: "https://github.com/OWNER/ColBERT-PPI-contact-only"

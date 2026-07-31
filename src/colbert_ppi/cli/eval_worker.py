@@ -15,7 +15,7 @@ Communication protocol (socket-based, 127.0.0.1:29599):
 Results are still written to disk (output_dir) for train.py to discover.
 
 Usage:
-  python -m colbert_ppi.cli.eval_worker --output_dir outputs/run_xxx --eval_gpu 4
+  python eval_worker.py --output_dir outputs/run_xxx --eval_gpu 4
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import socket
 import sys
 import time
@@ -32,6 +33,7 @@ from typing import Optional
 import torch
 from torch.utils.data import DataLoader
 
+from colbert_ppi.config import TrainingConfig
 from colbert_ppi.dataset import (
     SaProtContactDataset,
     SaProtLoRAContactDataset,
@@ -41,16 +43,14 @@ from colbert_ppi.eval_labels import collapse_retrieval_by_uniprot, load_positive
 from colbert_ppi.retrieval import compute_retrieval_metrics
 from colbert_ppi.model import create_model
 from colbert_ppi.trainer import run_eval_epoch
-from colbert_ppi.utils import set_seed
+from colbert_ppi.utils import set_seed, setup_logging
 
 logger = logging.getLogger(__name__)
 
 EVAL_CSV_COLUMNS = [
     "epoch",
     "val_auprc",
-    "val_attn_auprc",
     "test_auprc",
-    "test_attn_auprc",
     "val_uniprot_max_auprc",
     "val_uniprot_mean_auprc",
     "test_uniprot_max_auprc",
@@ -77,35 +77,34 @@ def add_uniprot_collapse_metrics(
     samples,
 ) -> None:
     """Append UniProt Max/Mean-collapse metrics to an eval result dict."""
-    for score_key, score_prefix in (("scores", ""), ("scores_attn", "attn_")):
-        scores = score_output.get(score_key)
-        if scores is None:
-            continue
-        for reduction in ("max", "mean"):
-            collapsed_scores, collapsed_positive, metadata = collapse_retrieval_by_uniprot(
-                scores,
-                positive_mask,
-                samples,
-                reduction=reduction,
+    scores = score_output.get("scores")
+    if scores is None:
+        return
+    for reduction in ("max", "mean"):
+        collapsed_scores, collapsed_positive, metadata = collapse_retrieval_by_uniprot(
+            scores,
+            positive_mask,
+            samples,
+            reduction=reduction,
+        )
+        collapsed_metrics = compute_retrieval_metrics(
+            torch.from_numpy(collapsed_scores).float(),
+            positive_mask=torch.from_numpy(collapsed_positive),
+        )
+        prefix = f"{stage}_uniprot_{reduction}_"
+        for key, value in collapsed_metrics.items():
+            metrics[f"{prefix}{key}"] = value
+        if reduction == "max":
+            metrics[f"{stage}_uniprot_record_rows"] = int(metadata["record_rows"])
+            metrics[f"{stage}_uniprot_record_cols"] = int(metadata["record_cols"])
+            metrics[f"{stage}_uniprot_unique_receptors"] = int(metadata["unique_receptors"])
+            metrics[f"{stage}_uniprot_unique_ligands"] = int(metadata["unique_ligands"])
+            metrics[f"{stage}_uniprot_record_positive_pairs"] = int(
+                metadata["record_positive_pairs"]
             )
-            collapsed_metrics = compute_retrieval_metrics(
-                torch.from_numpy(collapsed_scores).float(),
-                positive_mask=torch.from_numpy(collapsed_positive),
+            metrics[f"{stage}_uniprot_unique_positive_edges"] = int(
+                metadata["unique_positive_edges"]
             )
-            prefix = f"{stage}_{score_prefix}uniprot_{reduction}_"
-            for key, value in collapsed_metrics.items():
-                metrics[f"{prefix}{key}"] = value
-            if not score_prefix and reduction == "max":
-                metrics[f"{stage}_uniprot_record_rows"] = int(metadata["record_rows"])
-                metrics[f"{stage}_uniprot_record_cols"] = int(metadata["record_cols"])
-                metrics[f"{stage}_uniprot_unique_receptors"] = int(metadata["unique_receptors"])
-                metrics[f"{stage}_uniprot_unique_ligands"] = int(metadata["unique_ligands"])
-                metrics[f"{stage}_uniprot_record_positive_pairs"] = int(
-                    metadata["record_positive_pairs"]
-                )
-                metrics[f"{stage}_uniprot_unique_positive_edges"] = int(
-                    metadata["unique_positive_edges"]
-                )
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +113,7 @@ def add_uniprot_collapse_metrics(
 
 def build_model_from_args(args: dict, device: torch.device) -> torch.nn.Module:
     """Rebuild the model from the serialised training args dict."""
-    model_type = "colbert_lora" if args.get("use_lora", False) else "colbert"
+    model_type = "colbert_lora" if args.get("use_lora", False) else args.get("model_type", "colbert")
     model_kwargs = dict(
         input_dim=args.get("input_dim", 1280),
         ppi_temperature=args.get("ppi_temperature", 0.07),
@@ -126,27 +125,21 @@ def build_model_from_args(args: dict, device: torch.device) -> torch.nn.Module:
             lora_alpha=args.get("lora_alpha", 8),
             lora_dropout=args.get("lora_dropout", 0.1),
             hidden_dim=args.get("hidden_dim", 256),
-            num_heads=args.get("num_heads", 4),
-            num_layers=args.get("num_layers", 2),
             dropout=args.get("dropout", 0.1),
             sequence_only=args.get("sequence_only", False),
-            untied_encoder=args.get("untied_encoder", False),
         )
     else:
         model_kwargs.update(
             hidden_dim=args.get("hidden_dim", 256),
-            num_heads=args.get("num_heads", 4),
-            num_layers=args.get("num_layers", 2),
             dropout=args.get("dropout", 0.1),
-            untied_encoder=args.get("untied_encoder", False),
         )
     model = create_model(model_type, **model_kwargs).to(device)
     return model
 
 
-def load_val_dataset(args: dict, project_root: Path):
+def load_val_dataset(args: dict, v8_root: Path):
     """Load the full (non-distributed) validation dataset."""
-    data_dir = project_root / args.get("data_dir", "data")
+    data_dir = v8_root / args.get("data_dir", "data")
     DatasetClass = SaProtLoRAContactDataset if args.get("use_lora", False) else SaProtContactDataset
 
     if args.get("val_contact_map"):
@@ -177,9 +170,9 @@ def load_val_dataset(args: dict, project_root: Path):
     return dataset
 
 
-def load_test_dataset(args: dict, project_root: Path):
+def load_test_dataset(args: dict, v8_root: Path):
     """Load the full (non-distributed) test dataset."""
-    data_dir = project_root / args.get("data_dir", "data")
+    data_dir = v8_root / args.get("data_dir", "data")
     DatasetClass = SaProtLoRAContactDataset if args.get("use_lora", False) else SaProtContactDataset
 
     if args.get("test_contact_map"):
@@ -251,7 +244,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
         train_args = json.load(f)
     logger.info(f"Loaded training config from {args_path}")
 
-    project_root = Path.cwd().resolve()
+    v8_root = Path(__file__).resolve().parent.parent
 
     # --- Build model ---
     logger.info("Building model for evaluation...")
@@ -260,7 +253,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
 
     # --- Load validation dataset ---
     logger.info("Loading validation dataset...")
-    val_dataset = load_val_dataset(train_args, project_root)
+    val_dataset = load_val_dataset(train_args, v8_root)
     logger.info(f"Val dataset: {len(val_dataset)} pairs")
     val_positive_mask = None
     if train_args.get("val_calibrated_pairs"):
@@ -294,7 +287,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
     test_score_mask1 = None
     if run_test_each_epoch:
         logger.info("Loading test dataset...")
-        test_dataset = load_test_dataset(train_args, project_root)
+        test_dataset = load_test_dataset(train_args, v8_root)
         logger.info(f"Test dataset: {len(test_dataset)} pairs")
         if train_args.get("test_calibrated_pairs"):
             test_positive_mask = load_positive_mask(
@@ -479,12 +472,11 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
         # Track best validation AUPRC for logging.
         selection_metric = train_args.get("eval_selection_metric", "val_auprc")
         val_auprc = val_metrics.get(selection_metric, 0.0)
-        val_attn_auprc = val_metrics.get("val_attn_auprc", 0.0)
         if val_auprc > best_val_auprc:
             best_val_auprc = val_auprc
             message = (
                 f"  >> New best {selection_metric}={val_auprc:.4f} "
-                f"(val_auprc={val_auprc:.4f}, val_attn_auprc={val_attn_auprc:.4f})"
+                f"(val_auprc={val_auprc:.4f})"
             )
         else:
             message = (
@@ -493,8 +485,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
             )
         if run_test_each_epoch:
             message += (
-                f", test_auprc={test_metrics.get('test_auprc', 0.0):.4f}, "
-                f"test_attn_auprc={test_metrics.get('test_attn_auprc', 0.0):.4f}"
+                f", test_auprc={test_metrics.get('test_auprc', 0.0):.4f}"
             )
         logger.info(message)
 

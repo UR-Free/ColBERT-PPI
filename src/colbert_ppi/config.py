@@ -16,19 +16,14 @@ class TrainingConfig:
     saprot_input_dim: int = 1280  # ESM-2 650M embedding dim
     saprot_dir: str = "SaProt/weights/PLMs/SaProt_650M_AF2"  # local checkpoint dir
 
-    # --- ColBERT ---
+    # --- Query/candidate residue projection heads ---
     hidden_dim: int = 512
-    num_heads: int = 16
-    num_layers: int = 3
     dropout: float = 0.1
 
     # --- Scoring ---
     ppi_temperature: float = 0.07
 
     # --- Ablations ---
-    # Use separate receptor/ligand FlashAttention context encoders.  Both
-    # towers start from identical weights and are optimized independently.
-    untied_encoder: bool = False
     # Replace each amino-acid/3Di token (for example ``Ap``) with the
     # sequence-only token for the same residue (``A#``).
     sequence_only: bool = False
@@ -40,6 +35,7 @@ class TrainingConfig:
     warmup_epochs: int = 0  # No warmup — use pure cosine annealing
     grad_accum_steps: int = 1
     max_grad_norm: float = 1.0
+    save_epoch_components: bool = False
 
     # --- Contact contrastive loss ---
     pos_per_sample: int = 5   # positive residue pairs per complex (contact < 8A)

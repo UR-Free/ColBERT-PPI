@@ -21,3 +21,13 @@ pooling and scoring are not part of the publication-grade code.
 
 Any future change that introduces an additional optimization term must be
 documented here before it enters publication-grade code.
+
+## 2026-08-01 — Two residue projection heads only
+
+Status: active and binding for the publication-grade model.
+
+The shared SaProt+LoRA backbone feeds exactly two independent per-residue MLP
+heads: `query_projector` for query proteins and `candidate_projector` for
+candidate partners. The publication path contains no post-SaProt Transformer,
+side indicator, random role swap, or residue-weight/attention MLP. Lightweight
+epoch checkpoints preserve LoRA, both MLP heads, and the temperature scalar.

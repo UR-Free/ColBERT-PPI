@@ -446,13 +446,22 @@ def _load_saprot_inputs(pt_file: Path) -> Dict[str, Dict[str, torch.Tensor]]:
     return inputs
 
 
-def _load_explicit_contact_maps(pt_file: Path) -> Dict[str, dict]:
+def _load_explicit_contact_maps(
+    pt_file: Path,
+    *,
+    return_metadata: bool = False,
+) -> Dict[str, dict] | tuple[Dict[str, dict], dict]:
     data = torch.load(pt_file, map_location="cpu", weights_only=False)
+    metadata: dict = {}
     if isinstance(data, dict) and "contacts" in data and isinstance(data["contacts"], dict):
+        metadata = {str(k): v for k, v in data.items() if k != "contacts"}
         data = data["contacts"]
     if not isinstance(data, dict):
         raise ValueError(f"Explicit contact maps must be a dict: {pt_file}")
-    return {str(k): v for k, v in data.items()}
+    contacts = {str(k): v for k, v in data.items()}
+    if return_metadata:
+        return contacts, metadata
+    return contacts
 
 
 def _contact_entry_size(entry: dict, prefix: str) -> int:
@@ -794,11 +803,33 @@ class SaProtLoRAExplicitContactDataset(Dataset):
         self.max_seq_len = max_seq_len
         self.build_contacts = build_contacts
 
-        self.samples = _read_csv_pairs(self.csv_file)
-        if not self.samples:
+        record_pairs = _read_csv_pairs(self.csv_file)
+        if not record_pairs:
             raise ValueError(f"No valid pairs found in {self.csv_file}")
 
-        requested_labels = {a for a, b in self.samples} | {b for a, b in self.samples}
+        if not self.contact_map_pt.exists():
+            raise FileNotFoundError(f"Explicit contact labels not found: {self.contact_map_pt}")
+        self._contact_maps, contact_metadata = _load_explicit_contact_maps(
+            self.contact_map_pt,
+            return_metadata=True,
+        )
+        self._windowed = "_windowed_explicit_" in str(
+            contact_metadata.get("format", "")
+        )
+
+        requested_input_keys: set[str] = set()
+        if self._windowed:
+            for left, right in record_pairs:
+                entry = self._contact_maps.get(f"{left}:{right}")
+                if entry is None:
+                    continue
+                requested_input_keys.update(
+                    str(entry.get(key, ""))
+                    for key in ("input_key1", "input_key2")
+                    if entry.get(key)
+                )
+
+        requested_labels = {a for a, b in record_pairs} | {b for a, b in record_pairs}
         requested_accessions = {
             acc for label in requested_labels
             for acc in [_extract_uniprot_accession(label)]
@@ -811,7 +842,10 @@ class SaProtLoRAExplicitContactDataset(Dataset):
         self._inputs: Dict[str, Dict[str, torch.Tensor]] = {}
         self._input_aliases: Dict[str, str] = {}
         for label, inp in raw_inputs.items():
-            if label not in requested_accessions and not self._matches_requested(label, requested_labels):
+            if self._windowed:
+                if label not in requested_input_keys:
+                    continue
+            elif label not in requested_accessions and not self._matches_requested(label, requested_labels):
                 continue
             self._inputs[label] = inp
             for alias in _label_aliases_with_uniprot(label):
@@ -828,7 +862,10 @@ class SaProtLoRAExplicitContactDataset(Dataset):
         self._coord_aliases: Dict[str, str] = {}
         for i, label in enumerate(labels_np.tolist()):
             label = _normalize_label(label)
-            if label not in requested_accessions and not self._matches_requested(label, requested_labels):
+            if self._windowed:
+                if label not in requested_input_keys:
+                    continue
+            elif label not in requested_accessions and not self._matches_requested(label, requested_labels):
                 continue
             start = int(offsets[i])
             end = int(offsets[i + 1])
@@ -839,32 +876,44 @@ class SaProtLoRAExplicitContactDataset(Dataset):
         if not self._coords:
             raise ValueError(f"No requested AFDB CB coordinates found in {self.cb_npz}")
 
-        if not self.contact_map_pt.exists():
-            raise FileNotFoundError(f"Explicit contact labels not found: {self.contact_map_pt}")
-        self._contact_maps = _load_explicit_contact_maps(self.contact_map_pt)
-
         self._resolve_cache: Dict[str, str] = {}
-        valid_samples = []
+        valid_samples: list[tuple[str, str]] = []
+        valid_record_ids: list[str] = []
         missing = []
         missing_contacts = 0
-        for left, right in self.samples:
+        for left, right in record_pairs:
+            record_id = f"{left}:{right}"
+            entry = self._contact_maps.get(record_id)
+            if entry is None:
+                missing_contacts += 1
+                continue
             try:
-                self._resolve(left)
-                self._resolve(right)
-                pair_id = f"{left}:{right}"
-                entry = self._contact_maps.get(pair_id)
-                if entry is None:
-                    missing_contacts += 1
-                    continue
+                if self._windowed:
+                    key_a = str(entry["input_key1"])
+                    key_b = str(entry["input_key2"])
+                    if key_a not in self._inputs or key_a not in self._coords:
+                        raise KeyError(key_a)
+                    if key_b not in self._inputs or key_b not in self._coords:
+                        raise KeyError(key_b)
+                    parent_left = _normalize_label(str(entry["parent_label1"]))
+                    parent_right = _normalize_label(str(entry["parent_label2"]))
+                else:
+                    self._resolve(left)
+                    self._resolve(right)
+                    parent_left, parent_right = left, right
                 if self.build_contacts and (
-                    _contact_entry_size(entry, "pos") < 1
-                    or _contact_entry_size(entry, "neg") < 1
+                    not bool(entry.get("scoring_only", False))
+                    and (
+                        _contact_entry_size(entry, "pos") < 1
+                        or _contact_entry_size(entry, "neg") < 1
+                    )
                 ):
                     missing_contacts += 1
                     continue
-                valid_samples.append((left, right))
+                valid_samples.append((parent_left, parent_right))
+                valid_record_ids.append(record_id)
             except KeyError:
-                missing.append(f"{left}:{right}")
+                missing.append(record_id)
 
         if missing or missing_contacts:
             import logging
@@ -875,6 +924,7 @@ class SaProtLoRAExplicitContactDataset(Dataset):
             )
 
         self.samples = valid_samples
+        self._record_pair_ids = valid_record_ids
         if not self.samples:
             raise ValueError("All pairs were skipped — check AFDB/contact-map consistency.")
 
@@ -917,8 +967,14 @@ class SaProtLoRAExplicitContactDataset(Dataset):
 
     def _prepare(self, idx: int) -> dict:
         left, right = self.samples[idx]
-        key_a = self._resolve(left)
-        key_b = self._resolve(right)
+        pair_id = self._record_pair_ids[idx]
+        entry = self._contact_maps[pair_id]
+        if self._windowed:
+            key_a = str(entry["input_key1"])
+            key_b = str(entry["input_key2"])
+        else:
+            key_a = self._resolve(left)
+            key_b = self._resolve(right)
 
         inp_a = self._inputs[key_a]
         inp_b = self._inputs[key_b]
@@ -961,8 +1017,6 @@ class SaProtLoRAExplicitContactDataset(Dataset):
             "attention_mask": tok_b["attention_mask"][:, :tok_len_b],
         }
 
-        pair_id = f"{left}:{right}"
-        entry = self._contact_maps[pair_id]
         contact_matrix, contact_mask = self._make_explicit_contact_matrix(entry, res_len_a, res_len_b)
 
         return {

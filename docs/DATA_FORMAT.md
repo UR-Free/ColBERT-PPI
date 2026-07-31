@@ -60,6 +60,15 @@ Indices are zero-based and must already be projected into the residue
 coordinates used by the corresponding monomer inputs. Unlabelled residue pairs
 are ignored.
 
+For deterministic full-sequence window inputs, store a top-level format such
+as `colbert_ppi_windowed_explicit_v1`. Each contact entry additionally carries
+`input_key1`, `input_key2`, `parent_label1`, and `parent_label2`. The CSV is
+keyed by unique window-record labels, while the loader exposes the parent labels
+for protein-level score aggregation. A `scoring_only` entry may omit positive
+or negative contacts; it participates in retrieval but not contact supervision.
+Use non-overlapping 512-residue blocks (`0:512`, `512:1024`, ...) so every
+residue is represented exactly once.
+
 ## Retrieval label matrix
 
 `colbert-ppi-evaluate` reads a Boolean matrix from an NPZ archive. By default,

@@ -94,16 +94,18 @@ def encode_both_roles(
             dtype=torch.bfloat16,
             enabled=device.type == "cuda" and bool(train_args.get("bf16", True)),
         ):
-            outputs = model(
+            r_q, l_p, _ = model(
                 input_ids1=batch["input_ids1"].to(device),
                 input_ids2=batch["input_ids2"].to(device),
                 mask1=raw_mr,
                 mask2=raw_ml,
-                return_opposite=True,
             )
-        if len(outputs) != 9:
-            raise RuntimeError("Model did not return four role-specific embeddings")
-        r_q, l_p, _, _, _, r_p, l_q, _, _ = outputs
+            l_q, r_p, _ = model(
+                input_ids1=batch["input_ids2"].to(device),
+                input_ids2=batch["input_ids1"].to(device),
+                mask1=raw_ml,
+                mask2=raw_mr,
+            )
         for key, tensor in (
             ("r_q", r_q),
             ("l_p", l_p),
@@ -339,7 +341,7 @@ def canonical_score_dataset(
             "k": CANONICAL_K,
             "N": CANONICAL_N,
             "pair_score": "mean(A-as-query:B-as-partner, B-as-query:A-as-partner)",
-            "role_swap": "model return_opposite embeddings; no transpose shortcut",
+            "role_swap": "explicit swapped query/candidate forward pass; no transpose shortcut",
             "collapse": "exact prepared-input sequence Max-collapse after orientation mean",
         },
         "counts": {

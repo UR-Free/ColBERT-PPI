@@ -37,7 +37,7 @@ from colbert_ppi.dataset import (
     SaProtLoRAContactDatasetV3,
 )
 from colbert_ppi.eval_labels import load_positive_mask
-from colbert_ppi.model import create_model
+from colbert_ppi.model import component_state_dict, create_model
 from colbert_ppi.trainer import (
     run_train_epoch,
     run_eval_epoch,
@@ -131,16 +131,9 @@ def parse_args(cfg: Optional[TrainingConfig] = None) -> argparse.Namespace:
     # Model
     parser.add_argument("--input_dim", type=int, default=cfg.saprot_input_dim)
     parser.add_argument("--hidden_dim", type=int, default=cfg.hidden_dim)
-    parser.add_argument("--num_heads", type=int, default=cfg.num_heads)
-    parser.add_argument("--num_layers", type=int, default=cfg.num_layers)
     parser.add_argument("--dropout", type=float, default=cfg.dropout)
     # Shared
     parser.add_argument("--ppi_temperature", type=float, default=cfg.ppi_temperature)
-    parser.add_argument(
-        "--untied_encoder", action="store_true",
-        default=getattr(cfg, "untied_encoder", False),
-        help="Use independent receptor/ligand FlashAttention context encoders",
-    )
     parser.add_argument(
         "--sequence_only", action="store_true",
         default=getattr(cfg, "sequence_only", False),
@@ -153,6 +146,12 @@ def parse_args(cfg: Optional[TrainingConfig] = None) -> argparse.Namespace:
     parser.add_argument("--weight_decay", type=float, default=cfg.weight_decay)
     parser.add_argument("--warmup_epochs", type=int, default=cfg.warmup_epochs)
     parser.add_argument("--max_grad_norm", type=float, default=cfg.max_grad_norm)
+    parser.add_argument(
+        "--save_epoch_components",
+        action=argparse.BooleanOptionalAction,
+        default=getattr(cfg, "save_epoch_components", False),
+        help="Save LoRA, query/candidate MLPs, and temperature after every epoch",
+    )
 
     # Loss
     parser.add_argument("--pos_per_sample", type=int, default=cfg.pos_per_sample)
@@ -459,14 +458,11 @@ def _check_eval_results(output_dir: Path, best_val_auprc: float,
                 data = json.load(f)
             metrics = data.get("metrics", {})
             val_auprc = metrics.get(selection_metric, 0.0)
-            val_attn_auprc = metrics.get("val_attn_auprc", None)
         except Exception:
             val_auprc = 0.0
-            val_attn_auprc = None
 
         temp_ckpt = output_dir / f"temp_ckpt_epoch{epoch}.pt"
 
-        attn_str = f", attn_auprc={val_attn_auprc:.4f}" if val_attn_auprc is not None else ""
         if val_auprc > best_val_auprc:
             best_val_auprc = val_auprc
             best_path = output_dir_path / "best_model.pt"
@@ -474,18 +470,18 @@ def _check_eval_results(output_dir: Path, best_val_auprc: float,
                 try:
                     os.replace(temp_ckpt, best_path)
                     logger.info(
-                        f"  >> New best {selection_metric}={val_auprc:.4f}{attn_str} "
+                        f"  >> New best {selection_metric}={val_auprc:.4f} "
                         f"(epoch {epoch}) — moved to best_model.pt"
                     )
                 except OSError:
                     shutil.copy2(temp_ckpt, best_path)
                     logger.info(
-                        f"  >> New best {selection_metric}={val_auprc:.4f}{attn_str} "
+                        f"  >> New best {selection_metric}={val_auprc:.4f} "
                         f"(epoch {epoch}) — copied to best_model.pt"
                     )
         else:
             logger.info(
-                f"  Eval epoch {epoch}: {selection_metric}={val_auprc:.4f}{attn_str} "
+                f"  Eval epoch {epoch}: {selection_metric}={val_auprc:.4f} "
                 f"(no improvement over {best_val_auprc:.4f})"
             )
 
@@ -575,6 +571,37 @@ def _save_temp_checkpoint(
         logger.exception(f"Checkpoint save failed for epoch {epoch}")
         if tmp_path.exists():
             tmp_path.unlink()
+
+
+def _save_epoch_components(
+    model: torch.nn.Module,
+    output_dir: Path,
+    epoch: int,
+    args: argparse.Namespace,
+) -> Path:
+    """Atomically save the lightweight trainable state for one epoch."""
+    component_dir = output_dir / "epoch_components"
+    component_dir.mkdir(parents=True, exist_ok=True)
+    destination = component_dir / f"epoch_{epoch:03d}_lora_query_candidate_mlp.pt"
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    payload = {
+        "format": "colbert_ppi_lora_query_candidate_mlp_v1",
+        "epoch": epoch,
+        "seed": args.seed,
+        "architecture": {
+            "backbone": "SaProt+LoRA",
+            "projection_heads": ["query_projector", "candidate_projector"],
+            "hidden_dim": args.hidden_dim,
+            "lora_r": args.lora_r,
+            "lora_alpha": args.lora_alpha,
+            "lora_dropout": args.lora_dropout,
+        },
+        "state_dict": component_state_dict(model),
+    }
+    torch.save(payload, temporary)
+    os.replace(temporary, destination)
+    logger.info("Saved epoch %d trainable components: %s", epoch, destination)
+    return destination
 
 
 def _run_worker(
@@ -998,19 +1025,13 @@ def _run_worker(
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             hidden_dim=args.hidden_dim,
-            num_heads=args.num_heads,
-            num_layers=args.num_layers,
             dropout=args.dropout,
             sequence_only=args.sequence_only,
-            untied_encoder=args.untied_encoder,
         )
     else:
         model_kwargs.update(
             hidden_dim=args.hidden_dim,
-            num_heads=args.num_heads,
-            num_layers=args.num_layers,
             dropout=args.dropout,
-            untied_encoder=args.untied_encoder,
         )
 
     model = create_model(effective_model_type, **model_kwargs).to(device)
@@ -1161,6 +1182,8 @@ def _run_worker(
                 f"contact={train_metrics['train_contact_loss']:>7.4f}  "
                 f"lr={scheduler.get_last_lr()[0]:.2e}"
             )
+            if args.save_epoch_components:
+                _save_epoch_components(model, output_dir, epoch, args)
 
         # --- Eval: save temp checkpoint + signal eval worker (rank 0 only) ---
         # Checkpoint is saved synchronously in the main thread AFTER moving
@@ -1187,8 +1210,6 @@ def _run_worker(
                     score_mask1_by_label=val_score_mask1,
                 )
                 val_auprc = val_metrics.get("val_auprc", 0.0)
-                val_attn_auprc = val_metrics.get("val_attn_auprc", None)
-                attn_str = f", attn_auprc={val_attn_auprc:.4f}" if val_attn_auprc is not None else ""
                 history_path = output_dir / "eval_history.jsonl"
                 with history_path.open("a") as fh:
                     fh.write(json.dumps({"epoch": epoch, "metrics": val_metrics}, default=str) + "\n")
@@ -1201,12 +1222,12 @@ def _run_worker(
                         include_scaler_state=False,
                     )
                     logger.info(
-                        f"  >> New best val_auprc={val_auprc:.4f}{attn_str} "
+                        f"  >> New best val_auprc={val_auprc:.4f} "
                         f"(epoch {epoch}) — saved to best_model.pt"
                     )
                 else:
                     logger.info(
-                        f"  Eval epoch {epoch}: val_auprc={val_auprc:.4f}{attn_str} "
+                        f"  Eval epoch {epoch}: val_auprc={val_auprc:.4f} "
                         f"(no improvement over {best_val_auprc:.4f})"
                     )
             else:

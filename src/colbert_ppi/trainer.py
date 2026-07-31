@@ -1,8 +1,23 @@
-"""Contact-only training and read-only evaluation for ColBERT-PPI.
+"""
+Training and evaluation loops for v8 SaProt ColBERT PPI model.
 
-The training path samples positive and negative residue pairs from labelled
-contact matrices and optimizes bidirectional residue-contact InfoNCE. PPI
-retrieval scores and metrics are computed only during evaluation.
+The only training objective is residue-contact CLIP / InfoNCE.
+
+Pipeline:
+  1. SaProt residues → independent query/candidate MLP projections
+  2. Sample positive (CB < 8Å) and negative (CB > 12Å) residue pairs from contact matrix
+  3. Build cross-chain similarity matrix with learnable temperature
+  4. Bidirectional InfoNCE loss (v1-style clip_loss)
+
+Mutual top-k PPI scoring is computed for evaluation only (no PPI loss):
+  bidirectional residue logits → mutual top-10 filter → top-20 sum.
+
+Key functions:
+  - _sample_contact_pairs: extract pos/neg residue embeddings from contact matrix
+  - _residue_clip_loss:   v1-style bidirectional InfoNCE on residue similarity matrix
+  - compute_batch_losses:  per-batch forward + contact-only loss
+  - run_train_epoch:       single training epoch
+  - run_eval_epoch:        validation epoch with retrieval metrics
 """
 
 from __future__ import annotations
@@ -63,21 +78,16 @@ def _sample_contact_pairs(
     pos_per_sample: int = 5,
     neg_per_sample: int = 5,
     device: torch.device,
-    attn_w1: Optional[torch.Tensor] = None,
-    attn_w2: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int,
-           torch.Tensor, torch.Tensor, torch.Tensor,
-           Optional[torch.Tensor], Optional[torch.Tensor],
-           Optional[torch.Tensor], Optional[torch.Tensor]]:
+           torch.Tensor, torch.Tensor, torch.Tensor]:
     """Sample positive and negative residue pairs from a contact matrix.
 
     Positive pairs:  contact_matrix ==  1  (CB < 8 Å)
     Negative pairs:  contact_matrix == -1  (CB > 12 Å)
 
     Gathers the corresponding residue embeddings from the encoded
-    representations h1, h2.  Optionally gathers per-residue attention
-    weights for importance-weighted training.  Also returns
-    pos_batch_ids (batch index per positive pair) for per-sample masking.
+    representations h1, h2. Also returns positive residue indices for
+    residue-level evaluation.
 
     Parameters
     ----------
@@ -89,9 +99,6 @@ def _sample_contact_pairs(
         Valid residue pair mask.
     pos_per_sample, neg_per_sample : int
         Max number of positive / negative pairs to sample per complex.
-    attn_w1, attn_w2 : (B, L1), (B, L2) or None
-        Optional per-residue attention weights.
-
     Returns
     -------
     pos_h1, pos_h2 : (N_pos, D)   paired positive residue embeddings
@@ -99,8 +106,6 @@ def _sample_contact_pairs(
     N_pos : int                   number of positive pairs
     pos_batch_ids : (N_pos,)      batch index for each positive pair
     pos_i, pos_j : (N_pos,)       residue indices for each positive pair
-    pos_w1, pos_w2 : (N_pos,) or None   attention weights for positive pairs
-    neg_w1, neg_w2 : (N_neg,) or None   attention weights for negative pairs
     """
     B = h1.size(0)
     pos_i_parts: list[torch.Tensor] = []
@@ -133,60 +138,52 @@ def _sample_contact_pairs(
                     torch.full((idx.size(0),), b, device=device, dtype=torch.long)
                 )
 
-    # --- Gather positive embeddings (and attention weights) ---
+    # --- Gather positive embeddings ---
     if pos_i_parts:
         pos_batch = torch.cat(pos_batch_parts, dim=0)
         pos_i = torch.cat(pos_i_parts, dim=0)
         pos_j = torch.cat(pos_j_parts, dim=0)
         pos_h1 = h1[pos_batch, pos_i]
         pos_h2 = h2[pos_batch, pos_j]
-        pos_w1 = attn_w1[pos_batch, pos_i] if attn_w1 is not None else None
-        pos_w2 = attn_w2[pos_batch, pos_j] if attn_w2 is not None else None
         pos_batch_ids = pos_batch
     else:
         pos_h1 = h1.new_zeros(0, h1.size(-1))
         pos_h2 = h1.new_zeros(0, h1.size(-1))
-        pos_w1 = None
-        pos_w2 = None
         pos_batch_ids = h1.new_zeros(0, dtype=torch.long)
         pos_i = h1.new_zeros(0, dtype=torch.long)
         pos_j = h1.new_zeros(0, dtype=torch.long)
     N_pos = pos_h1.size(0)
 
-    # --- Gather negative embeddings (and attention weights) ---
+    # --- Gather negative embeddings ---
     if neg_i_parts:
         neg_batch = torch.cat(neg_batch_parts, dim=0)
         neg_i = torch.cat(neg_i_parts, dim=0)
         neg_j = torch.cat(neg_j_parts, dim=0)
         neg_h1 = h1[neg_batch, neg_i]
         neg_h2 = h2[neg_batch, neg_j]
-        neg_w1 = attn_w1[neg_batch, neg_i] if attn_w1 is not None else None
-        neg_w2 = attn_w2[neg_batch, neg_j] if attn_w2 is not None else None
     else:
         neg_h1 = h1.new_zeros(0, h1.size(-1))
         neg_h2 = h1.new_zeros(0, h1.size(-1))
-        neg_w1 = None
-        neg_w2 = None
-
-    return (pos_h1, pos_h2, neg_h1, neg_h2, N_pos, pos_batch_ids, pos_i, pos_j,
-            pos_w1, pos_w2, neg_w1, neg_w2)
+    return pos_h1, pos_h2, neg_h1, neg_h2, N_pos, pos_batch_ids, pos_i, pos_j
 
 
 # ===========================================================================
 # Residue-level CLIP / InfoNCE loss  (v1-style)
 # ===========================================================================
 
-def _bidirectional_contact_loss(
+def _residue_clip_loss(
     logits: torch.Tensor,
     num_pos: int,
 ) -> torch.Tensor:
-    """Bidirectional contact InfoNCE on a residue similarity matrix.
+    """Bidirectional InfoNCE / CLIP loss on a residue similarity matrix.
 
     Assumes the first num_pos rows AND cols correspond to positive pairs
     arranged on the diagonal.  Logits are expected to already include
     temperature scaling.
 
     Loss = 0.5 * (CE(rows[:num_pos]) + CE(cols[:num_pos]))
+
+    This mirrors v1's clip_loss but operates on a single pre-scaled matrix.
 
     Parameters
     ----------
@@ -250,36 +247,29 @@ def compute_batch_losses(
 
     with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=bf16):
         if use_lora:
-            h1, h2, inv_temp, attn_w1, attn_w2 = model(
+            h1, h2, inv_temp = model(
                 input_ids1=input_ids1, input_ids2=input_ids2,
                 mask1=mask1, mask2=mask2,
             )
         else:
-            h1, h2, inv_temp, attn_w1, attn_w2 = model(
+            h1, h2, inv_temp = model(
                 repr1=repr1, repr2=repr2,
                 mask1=mask1, mask2=mask2,
             )
         contact_loss = h1.new_tensor(0.0)
-        pos_h1, pos_h2, neg_h1, neg_h2, num_pos, _, _, _, \
-            pos_w1, pos_w2, neg_w1, neg_w2 = _sample_contact_pairs(
+        pos_h1, pos_h2, neg_h1, neg_h2, num_pos, _, _, _ = _sample_contact_pairs(
                 h1, h2, contact_matrix, contact_mask,
                 pos_per_sample=pos_per_sample,
                 neg_per_sample=neg_per_sample,
                 device=device,
-                attn_w1=attn_w1,
-                attn_w2=attn_w2,
             )
         if num_pos > 0:
             all_h1 = torch.cat([pos_h1, neg_h1], dim=0)
             all_h2 = torch.cat([pos_h2, neg_h2], dim=0)
             logits = torch.matmul(all_h1, all_h2.T)
             logits = torch.clamp(logits, min=-1e2, max=1e2)
-            if pos_w1 is not None and pos_w2 is not None:
-                all_w1 = torch.cat([pos_w1, neg_w1])
-                all_w2 = torch.cat([pos_w2, neg_w2])
-                logits = logits * all_w1.unsqueeze(1) * all_w2.unsqueeze(0)
             logits = logits * inv_temp.to(dtype=logits.dtype)
-            contact_loss = _bidirectional_contact_loss(logits, num_pos)
+            contact_loss = _residue_clip_loss(logits, num_pos)
 
     return {
         "loss": contact_loss,
@@ -392,6 +382,8 @@ def run_eval_epoch(
     total_contact_loss = 0.0
     n_batches = 0
     use_ddp = dist.is_available() and dist.is_initialized()
+    rank = dist.get_rank() if use_ddp else 0
+    world_size = dist.get_world_size() if use_ddp else 1
 
     # Collect all encoded proteins for retrieval evaluation (single-GPU only)
     # In DDP mode, skip collection to avoid wasting memory.
@@ -400,8 +392,6 @@ def run_eval_epoch(
     all_mask1 = [] if not use_ddp else None
     all_mask2 = [] if not use_ddp else None
     all_score_mask1 = [] if not use_ddp else None
-    all_attn1 = [] if not use_ddp else None
-    all_attn2 = [] if not use_ddp else None
     contact_pair_labels: list[np.ndarray] = []
     contact_pair_scores: list[np.ndarray] = []
     contact_res_labels: list[np.ndarray] = []
@@ -458,7 +448,7 @@ def run_eval_epoch(
                 if use_lora:
                     input_ids1 = batch["input_ids1"].to(device)
                     input_ids2 = batch["input_ids2"].to(device)
-                    h1_eval, h2_eval, _, attn1_eval, attn2_eval = model(
+                    h1_eval, h2_eval, _ = model(
                         input_ids1=input_ids1, input_ids2=input_ids2,
                         mask1=mask1_raw, mask2=mask2_raw,
                     )
@@ -468,7 +458,7 @@ def run_eval_epoch(
                 else:
                     repr1 = batch["repr1"].to(device)
                     repr2 = batch["repr2"].to(device)
-                    h1_eval, h2_eval, _, attn1_eval, attn2_eval = model(
+                    h1_eval, h2_eval, _ = model(
                         repr1=repr1, repr2=repr2,
                         mask1=mask1_raw, mask2=mask2_raw,
                     )
@@ -492,9 +482,6 @@ def run_eval_epoch(
                         score_mask = score_mask[: mask.numel()]
                     score_masks.append(score_mask & mask)
                 all_score_mask1.append(torch.stack(score_masks, dim=0))
-            all_attn1.append(attn1_eval)
-            all_attn2.append(attn2_eval)
-
             contact_matrix = batch.get("contact_matrix")
             contact_mask = batch.get("contact_mask")
             if (
@@ -504,8 +491,6 @@ def run_eval_epoch(
             ):
                 h1_contact = h1_eval[batch_positive]
                 h2_contact = h2_eval[batch_positive]
-                attn1_contact = attn1_eval[batch_positive]
-                attn2_contact = attn2_eval[batch_positive]
                 mask1_contact = mask1_eval[batch_positive]
                 mask2_contact = mask2_eval[batch_positive]
                 contact_matrix = contact_matrix.to(device)
@@ -519,8 +504,6 @@ def run_eval_epoch(
                     "bld,bmd->blm", h1_contact.float(), h2_contact.float()
                 ) * inv_temp_eval
                 pair_scores = torch.clamp(pair_scores, min=-1e2, max=1e2)
-                pair_scores = pair_scores * attn1_contact.float().unsqueeze(2) * attn2_contact.float().unsqueeze(1)
-
                 valid_pairs = contact_mask & (contact_matrix != 0)
                 if valid_pairs.any():
                     contact_pair_labels.append(
@@ -607,14 +590,10 @@ def run_eval_epoch(
             score_m1_cat = score_m1_cat & m1_cat
         else:
             score_m1_cat = m1_cat
-        a1_cat = torch.cat(_pad_local_2d(all_attn1, max_l1_local), dim=0)
-        a2_cat = torch.cat(_pad_local_2d(all_attn2, max_l2_local), dim=0)
-
         if h1_cat.size(0) >= 2:
             base_model = _unwrap_model(model)
             inv_temp = base_model.get_inv_temperature()
 
-            # === Version 1: without attention ===
             ppi_scores = mutual_topk_ppi_scores(
                 h1_cat, h2_cat, score_m1_cat, m2_cat, inv_temp,
             )
@@ -627,21 +606,6 @@ def run_eval_epoch(
             ret_metrics = compute_retrieval_metrics(ppi_scores, positive_mask=label_mask)
             for k, v in ret_metrics.items():
                 metrics[f"{stage}_{k}"] = v
-
-            # === Version 2: attention-weighted (soft) ===
-            ppi_scores_attn = mutual_topk_ppi_scores(
-                h1_cat, h2_cat, score_m1_cat, m2_cat, inv_temp,
-                attn1=a1_cat, attn2=a2_cat,
-            )
-            if score_output is not None:
-                score_output["scores_attn"] = (
-                    ppi_scores_attn.detach().cpu().numpy()
-                )
-            ret_metrics_attn = compute_retrieval_metrics(
-                ppi_scores_attn, positive_mask=label_mask
-            )
-            for k, v in ret_metrics_attn.items():
-                metrics[f"{stage}_attn_{k}"] = v
 
             if label_mask is not None:
                 metrics[f"{stage}_positive_pairs"] = float(label_mask.sum().item())

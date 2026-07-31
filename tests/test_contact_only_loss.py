@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from colbert_ppi.trainer import compute_batch_losses
+from colbert_ppi.model import ColBERTPPIModel
 
 
 class TinyContactModel(torch.nn.Module):
@@ -13,9 +14,20 @@ class TinyContactModel(torch.nn.Module):
     def forward(self, repr1, repr2, mask1, mask2):
         h1 = torch.nn.functional.normalize(self.projection(repr1), dim=-1)
         h2 = torch.nn.functional.normalize(self.projection(repr2), dim=-1)
-        weight1 = torch.sigmoid(h1[..., 0]).masked_fill(~mask1, 0.0)
-        weight2 = torch.sigmoid(h2[..., 0]).masked_fill(~mask2, 0.0)
-        return h1, h2, h1.new_tensor(1.0), weight1, weight2
+        return h1, h2, h1.new_tensor(1.0)
+
+
+def test_model_has_only_query_and_candidate_projection_heads() -> None:
+    model = ColBERTPPIModel(input_dim=4, hidden_dim=4, dropout=0.0)
+    module_names = dict(model.named_modules())
+    assert "query_projector" in module_names
+    assert "candidate_projector" in module_names
+    assert "residue_attn" not in module_names
+    assert not any("transformer" in name.lower() for name in module_names)
+
+    mask = torch.ones(2, 3, dtype=torch.bool)
+    outputs = model(torch.randn(2, 3, 4), torch.randn(2, 3, 4), mask, mask)
+    assert len(outputs) == 3
 
 
 def test_contact_loss_is_the_only_optimization_output() -> None:

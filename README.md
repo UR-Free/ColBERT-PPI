@@ -111,6 +111,12 @@ The template uses 80 epochs, validation-only checkpoint selection and no
 per-epoch test evaluation. Outputs are written beneath `outputs/`, which is
 ignored by Git.
 
+The PPI model uses a shared SaProt+LoRA backbone followed directly by two
+per-residue MLP heads: `query_projector` and `candidate_projector`. It contains
+no post-SaProt Transformer or residue-weight MLP. When
+`save_epoch_components` is enabled, each epoch stores a lightweight LoRA plus
+two-head checkpoint under `epoch_components/`.
+
 ## Evaluate a frozen checkpoint
 
 ```bash

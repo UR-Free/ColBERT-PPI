@@ -44,8 +44,9 @@ review of every tracked path. No data, checkpoints or binary model artifacts
 are present.
 
 The uploaded repository was verified as private at
-`https://github.com/UR-Free/ColBERT-PPI`; its remote `main` commit matched the
-local release commit exactly.
+`https://github.com/UR-Free/ColBERT-PPI`; its remote `main` tree was verified
+byte-for-byte against the local release tree. Commit object IDs may differ
+because reviewed files are uploaded atomically through the GitHub API.
 
 ## 2026-08-01 evidence-protocol update
 
@@ -71,3 +72,7 @@ for the new diff.
 - added explicit AUPRC/AUROC, negative-count and prevalence outputs;
 - preserved validation-MRR checkpoint selection and the final-test firewall;
 - synchronized the model-agnostic evaluator, builder, documentation and tests.
+- remote private-repository commit after this update:
+  `8160eb1aa8c623d7d938af61f4d65b2a0922482d`; its tree matched the reviewed
+  local tree `bb75e60591b5cde97361fa655bc312a642807c24` before this audit-note-only
+  follow-up.

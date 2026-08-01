@@ -295,7 +295,7 @@ def run_train_epoch(
     log_interval: int = 10,
     epoch: int = 0,
     show_progress: bool = True,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Run one training epoch.
 
     Returns dict of average losses over the epoch.
@@ -365,6 +365,9 @@ def run_eval_epoch(
     stage: str = "val",
     show_progress: bool = True,
     positive_mask: torch.Tensor | None = None,
+    candidate_mask: torch.Tensor | None = None,
+    observed_label_mask: torch.Tensor | None = None,
+    verified_negative_mask: torch.Tensor | None = None,
     score_mask1_by_label: dict[str, torch.Tensor] | None = None,
     score_output: dict[str, np.ndarray] | None = None,
 ) -> dict[str, float]:
@@ -372,8 +375,8 @@ def run_eval_epoch(
 
     Computes:
       - Contact contrastive loss (as validation loss)
-      - Mutual top-k PPI retrieval metrics (AUPRC, topK accuracy, etc.)
-        on all validation pairs.
+      - Evidence-aware PPI retrieval metrics (MRR and Hit@K as primary;
+        positive-vs-unlabelled AUPRC as secondary) on validation pairs.
 
     Returns dict of all metrics.
     """
@@ -603,7 +606,22 @@ def run_eval_epoch(
                 positive_mask.to(device=ppi_scores.device, dtype=torch.bool)
                 if positive_mask is not None else None
             )
-            ret_metrics = compute_retrieval_metrics(ppi_scores, positive_mask=label_mask)
+            ret_metrics = compute_retrieval_metrics(
+                ppi_scores,
+                positive_mask=label_mask,
+                candidate_mask=(
+                    candidate_mask.to(device=ppi_scores.device, dtype=torch.bool)
+                    if candidate_mask is not None else None
+                ),
+                observed_label_mask=(
+                    observed_label_mask.to(device=ppi_scores.device, dtype=torch.bool)
+                    if observed_label_mask is not None else None
+                ),
+                verified_negative_mask=(
+                    verified_negative_mask.to(device=ppi_scores.device, dtype=torch.bool)
+                    if verified_negative_mask is not None else None
+                ),
+            )
             for k, v in ret_metrics.items():
                 metrics[f"{stage}_{k}"] = v
 

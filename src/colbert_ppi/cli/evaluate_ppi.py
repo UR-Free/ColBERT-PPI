@@ -6,7 +6,6 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
 import torch
 
 from colbert_ppi.cli.eval_worker import (
@@ -14,6 +13,11 @@ from colbert_ppi.cli.eval_worker import (
     load_test_dataset,
     load_val_dataset,
 )
+from colbert_ppi.eval_labels import (
+    collapse_retrieval_protocol_by_uniprot,
+    load_retrieval_label_protocol,
+)
+from colbert_ppi.retrieval import compute_retrieval_metrics
 from colbert_ppi.scoring import canonical_score_dataset
 from colbert_ppi.utils import set_seed
 
@@ -23,8 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--checkpoint", default="best_model.pt")
     parser.add_argument("--split", choices=("val", "test"), default="test")
-    parser.add_argument("--labels", type=Path, required=True)
-    parser.add_argument("--label-key", default="labels")
+    parser.add_argument(
+        "--protocol",
+        type=Path,
+        required=True,
+        help="Evidence-aware PPI label NPZ in the exact dataset order",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=2)
@@ -57,8 +65,8 @@ def main() -> int:
         if args.split == "val"
         else load_test_dataset(train_args, args.project_root.resolve())
     )
-    label_archive = np.load(args.labels, allow_pickle=False)
-    labels = np.asarray(label_archive[args.label_key], dtype=bool)
+    protocol = load_retrieval_label_protocol(args.protocol, dataset.samples)
+    labels = protocol.positive_mask.numpy()
 
     arrays, payload = canonical_score_dataset(
         model,
@@ -72,11 +80,48 @@ def main() -> int:
         "epoch": int(checkpoint.get("epoch", 0)),
         "split": args.split,
     }
+    record_scores = arrays["record_orientation_mean"]
+    record_metrics = compute_retrieval_metrics(
+        torch.from_numpy(record_scores).float(),
+        positive_mask=protocol.positive_mask,
+        candidate_mask=protocol.candidate_mask,
+        observed_label_mask=protocol.observed_label_mask,
+        verified_negative_mask=protocol.verified_negative_mask,
+    )
+    entity_scores, entity_protocol, entity_metadata = (
+        collapse_retrieval_protocol_by_uniprot(
+            record_scores,
+            protocol,
+            dataset.samples,
+            reduction="max",
+        )
+    )
+    entity_metrics = compute_retrieval_metrics(
+        torch.from_numpy(entity_scores).float(),
+        positive_mask=entity_protocol.positive_mask,
+        candidate_mask=entity_protocol.candidate_mask,
+        observed_label_mask=entity_protocol.observed_label_mask,
+        verified_negative_mask=entity_protocol.verified_negative_mask,
+    )
+    arrays["uniprot_max_orientation_mean"] = entity_scores.astype("float32")
+    payload["label_protocol"] = {
+        "version": protocol.protocol_version,
+        "source": str(args.protocol),
+        "semantics": (
+            "PINDER off-diagonal candidates are unlabelled unless exact "
+            "verified-negative evidence is present"
+        ),
+    }
+    payload["metrics"] = {
+        "record": record_metrics,
+        "uniprot_max": entity_metrics,
+    }
+    payload["uniprot_max_metadata"] = entity_metadata
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.output_dir / "scores.npz", **arrays)
     (args.output_dir / "metrics.json").write_text(
-        json.dumps(payload, indent=2) + "\n",
+        json.dumps(payload, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
     return 0

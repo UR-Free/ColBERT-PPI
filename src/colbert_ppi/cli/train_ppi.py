@@ -36,7 +36,13 @@ from colbert_ppi.dataset import (
     SaProtLoRAContactDataset,
     SaProtLoRAContactDatasetV3,
 )
-from colbert_ppi.eval_labels import load_positive_mask
+from colbert_ppi.eval_labels import (
+    RetrievalLabelProtocol,
+    collapse_retrieval_protocol_by_uniprot,
+    load_positive_mask,
+    load_retrieval_label_protocol,
+)
+from colbert_ppi.retrieval import compute_retrieval_metrics
 from colbert_ppi.model import component_state_dict, create_model
 from colbert_ppi.trainer import (
     run_train_epoch,
@@ -197,6 +203,18 @@ def parse_args(cfg: Optional[TrainingConfig] = None) -> argparse.Namespace:
     parser.add_argument("--test_calibrated_pairs", type=str,
                         default=getattr(cfg, "test_calibrated_pairs", ""),
                         help="Optional calibrated positive-pair CSV for test retrieval metrics")
+    parser.add_argument(
+        "--val_label_protocol",
+        type=str,
+        default=getattr(cfg, "val_label_protocol", ""),
+        help="Evidence-aware three-state validation label NPZ",
+    )
+    parser.add_argument(
+        "--test_label_protocol",
+        type=str,
+        default=getattr(cfg, "test_label_protocol", ""),
+        help="Evidence-aware three-state test label NPZ",
+    )
     parser.add_argument("--eval_selection_metric", type=str,
                         default=getattr(cfg, "eval_selection_metric", "val_auprc"),
                         help="Validation metric used to select best_model.pt")
@@ -222,7 +240,7 @@ def parse_args(cfg: Optional[TrainingConfig] = None) -> argparse.Namespace:
     parser.add_argument(
         "--final_test_after_training",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=getattr(cfg, "final_test_after_training", False),
         help=(
             "Run the legacy in-process test evaluation after training. Disable when "
             "a protocol-specific one-time test evaluator is required."
@@ -383,6 +401,52 @@ def _resolve_device(
 # ---------------------------------------------------------------------------
 # Async eval helpers (rank-0 only)
 # ---------------------------------------------------------------------------
+
+def _add_evidence_entity_metrics(
+    metrics: dict[str, object],
+    *,
+    stage: str,
+    score_output: dict[str, object],
+    label_protocol: RetrievalLabelProtocol | None,
+    samples: list[tuple[str, str]],
+) -> None:
+    """Append entity-collapsed metrics for synchronous evaluation."""
+    scores = score_output.get("scores")
+    if scores is None or label_protocol is None:
+        return
+    for reduction in ("max", "mean"):
+        collapsed_scores, collapsed_protocol, metadata = (
+            collapse_retrieval_protocol_by_uniprot(
+                scores, label_protocol, samples, reduction=reduction
+            )
+        )
+        collapsed_metrics = compute_retrieval_metrics(
+            torch.from_numpy(collapsed_scores).float(),
+            positive_mask=collapsed_protocol.positive_mask,
+            candidate_mask=collapsed_protocol.candidate_mask,
+            observed_label_mask=collapsed_protocol.observed_label_mask,
+            verified_negative_mask=collapsed_protocol.verified_negative_mask,
+        )
+        prefix = f"{stage}_uniprot_{reduction}_"
+        for key, value in collapsed_metrics.items():
+            metrics[f"{prefix}{key}"] = value
+        if reduction == "max":
+            metrics[f"{stage}_uniprot_unique_positive_edges"] = int(
+                metadata["unique_positive_edges"]
+            )
+
+
+def _selection_value(metrics: dict[str, object], metric_name: str) -> float:
+    value = metrics.get(metric_name)
+    if (
+        not isinstance(value, (int, float))
+        or not float("-inf") < float(value) < float("inf")
+    ):
+        raise ValueError(
+            f"Checkpoint metric {metric_name!r} is missing, null, or non-finite: {value!r}"
+        )
+    return float(value)
+
 
 def _spawn_eval_worker(
     output_dir: Path,
@@ -963,6 +1027,7 @@ def _run_worker(
 
     val_loader = None
     val_positive_mask = None
+    val_label_protocol = None
     val_score_mask1 = None
     if args.sync_eval:
         if main_rank:
@@ -998,7 +1063,12 @@ def _run_worker(
             else:
                 val_kwargs["saprot_pt"] = args.val_saprot
             val_dataset = DatasetClass(**val_kwargs)
-        if getattr(args, "val_calibrated_pairs", ""):
+        if getattr(args, "val_label_protocol", ""):
+            val_label_protocol = load_retrieval_label_protocol(
+                args.val_label_protocol, val_dataset.samples
+            )
+            val_positive_mask = val_label_protocol.positive_mask
+        elif getattr(args, "val_calibrated_pairs", ""):
             val_positive_mask = load_positive_mask(args.val_calibrated_pairs, val_dataset.samples)
         if getattr(args, "val_score_mask1", ""):
             val_score_mask1 = torch.load(args.val_score_mask1, map_location="cpu", weights_only=False)
@@ -1206,6 +1276,7 @@ def _run_worker(
             if args.sync_eval:
                 if val_loader is None:
                     raise RuntimeError("sync_eval requested but validation loader was not built")
+                val_score_output: dict[str, object] = {}
                 val_metrics = run_eval_epoch(
                     model, val_loader,
                     pos_per_sample=args.pos_per_sample,
@@ -1214,14 +1285,35 @@ def _run_worker(
                     epoch=epoch, stage="val",
                     show_progress=True,
                     positive_mask=val_positive_mask,
+                    candidate_mask=(
+                        val_label_protocol.candidate_mask if val_label_protocol else None
+                    ),
+                    observed_label_mask=(
+                        val_label_protocol.observed_label_mask
+                        if val_label_protocol else None
+                    ),
+                    verified_negative_mask=(
+                        val_label_protocol.verified_negative_mask
+                        if val_label_protocol else None
+                    ),
                     score_mask1_by_label=val_score_mask1,
+                    score_output=val_score_output,
                 )
-                val_auprc = val_metrics.get("val_auprc", 0.0)
+                _add_evidence_entity_metrics(
+                    val_metrics,
+                    stage="val",
+                    score_output=val_score_output,
+                    label_protocol=val_label_protocol,
+                    samples=val_dataset.samples,
+                )
+                val_auprc = _selection_value(
+                    val_metrics, args.eval_selection_metric
+                )
                 history_path = output_dir / "eval_history.jsonl"
                 with history_path.open("a") as fh:
                     fh.write(json.dumps({"epoch": epoch, "metrics": val_metrics}, default=str) + "\n")
                 best_path = output_dir / "best_model.pt"
-                if val_auprc >= best_val_auprc or not best_path.exists():
+                if val_auprc > best_val_auprc or not best_path.exists():
                     best_val_auprc = val_auprc
                     save_checkpoint(
                         model, optimizer, scaler, epoch, val_metrics, best_path,
@@ -1229,12 +1321,12 @@ def _run_worker(
                         include_scaler_state=False,
                     )
                     logger.info(
-                        f"  >> New best val_auprc={val_auprc:.4f} "
+                        f"  >> New best {args.eval_selection_metric}={val_auprc:.4f} "
                         f"(epoch {epoch}) — saved to best_model.pt"
                     )
                 else:
                     logger.info(
-                        f"  Eval epoch {epoch}: val_auprc={val_auprc:.4f} "
+                        f"  Eval epoch {epoch}: {args.eval_selection_metric}={val_auprc:.4f} "
                         f"(no improvement over {best_val_auprc:.4f})"
                     )
             else:
@@ -1367,7 +1459,13 @@ def _run_worker(
             )
         logger.info(f"Test: {len(test_dataset)} pairs, feat_dim={test_dataset.feat_dim}")
         test_positive_mask = None
-        if getattr(args, "test_calibrated_pairs", ""):
+        test_label_protocol = None
+        if getattr(args, "test_label_protocol", ""):
+            test_label_protocol = load_retrieval_label_protocol(
+                args.test_label_protocol, test_dataset.samples
+            )
+            test_positive_mask = test_label_protocol.positive_mask
+        elif getattr(args, "test_calibrated_pairs", ""):
             test_positive_mask = load_positive_mask(args.test_calibrated_pairs, test_dataset.samples)
             logger.info(
                 f"Test calibrated positive mask: {int(test_positive_mask.sum().item())} positives "
@@ -1387,6 +1485,7 @@ def _run_worker(
             pin_memory=True,
         )
 
+        test_score_output: dict[str, object] = {}
         test_metrics = run_eval_epoch(
             model, test_loader,
             pos_per_sample=args.pos_per_sample,
@@ -1395,7 +1494,24 @@ def _run_worker(
             epoch=0, stage="test",
             show_progress=True,
             positive_mask=test_positive_mask,
+            candidate_mask=(
+                test_label_protocol.candidate_mask if test_label_protocol else None
+            ),
+            observed_label_mask=(
+                test_label_protocol.observed_label_mask if test_label_protocol else None
+            ),
+            verified_negative_mask=(
+                test_label_protocol.verified_negative_mask if test_label_protocol else None
+            ),
             score_mask1_by_label=test_score_mask1,
+            score_output=test_score_output,
+        )
+        _add_evidence_entity_metrics(
+            test_metrics,
+            stage="test",
+            score_output=test_score_output,
+            label_protocol=test_label_protocol,
+            samples=test_dataset.samples,
         )
 
         # --- Log test metrics (same format as val) ---

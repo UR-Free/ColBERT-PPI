@@ -46,3 +46,19 @@ are present.
 The uploaded repository was verified as private at
 `https://github.com/UR-Free/ColBERT-PPI`; its remote `main` commit matched the
 local release commit exactly.
+
+## 2026-08-01 evidence-protocol update
+
+- added three-state PINDER labels, full-cell evidence ledgers and hashed
+  protocol manifests;
+- added model-agnostic score-matrix evaluation for matched ColBERT-PPI,
+  FlashPPI and other baselines;
+- changed confirmatory checkpoint selection to entity-level validation MRR;
+- Python compile check passed;
+- 11 tests passed;
+- CLI help smoke checks passed for the two new entry points;
+- whitespace and private-path/host/credential scans passed.
+
+Ruff was not installed in the active SaProt environment for this update; the
+earlier release-level Ruff result remains historical rather than being claimed
+for the new diff.

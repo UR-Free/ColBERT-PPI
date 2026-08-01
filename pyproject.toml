@@ -29,6 +29,8 @@ dev = [
 colbert-ppi-prepare-data = "colbert_ppi.cli.prepare_data:main"
 colbert-ppi-train = "colbert_ppi.cli.train_ppi:main"
 colbert-ppi-evaluate = "colbert_ppi.cli.evaluate_ppi:main"
+colbert-ppi-evaluate-score-matrix = "colbert_ppi.cli.evaluate_score_matrix:main"
+colbert-ppi-build-evidence-protocol = "colbert_ppi.cli.build_evidence_protocol:main"
 colbert-ppi-train-protein-nucleic = "colbert_ppi.cli.train_protein_nucleic:main"
 
 [tool.setuptools.packages.find]

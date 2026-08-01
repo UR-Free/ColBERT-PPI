@@ -5,7 +5,7 @@ from typing import Optional
 
 import numpy as np
 import torch
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 
 # ===========================================================================
@@ -313,28 +313,54 @@ def compute_auprc(ppi_scores: np.ndarray, positive_mask: np.ndarray | None = Non
 def compute_retrieval_metrics(
     ppi_scores: torch.Tensor,
     positive_mask: torch.Tensor | None = None,
-) -> dict[str, float]:
-    """Compute comprehensive retrieval metrics from a square PPI score matrix.
+    candidate_mask: torch.Tensor | None = None,
+    observed_label_mask: torch.Tensor | None = None,
+    verified_negative_mask: torch.Tensor | None = None,
+) -> dict[str, float | None]:
+    """Compute retrieval metrics from a receptor-by-ligand PPI score matrix.
 
     Parameters
     ----------
-    ppi_scores : (N, N) float
-        Square matrix of protein-level PPI scores.  Diagonal = positive pairs.
-    positive_mask : (N, N) bool, optional
+    ppi_scores : (N, M) float
+        Matrix of protein-level PPI scores. The legacy path (without an
+        explicit positive mask) requires a square diagonal-positive matrix.
+    positive_mask : (N, M) bool, optional
         Positive receptor-by-ligand labels. If provided, metrics use all
         positives in the mask instead of assuming only the diagonal is positive.
+    candidate_mask : (N, M) bool, optional
+        Biologically eligible candidates used for rank metrics. Cells outside
+        this mask are excluded rather than treated as negatives.
+    observed_label_mask : (N, M) bool, optional
+        Cells used for the descriptive positive-vs-unlabelled AUPRC. This mask
+        may censor known associations that are not direct physical positives.
+    verified_negative_mask : (N, M) bool, optional
+        Experimentally supported negative evidence. Strict binary AUPRC/AUROC
+        are computed only on positives plus these negatives.
 
     Returns
     -------
     metrics : dict
-        acc, top100, top200, top300, mrr, auprc
+        Rank metrics plus explicit observed-label and strict-binary metrics.
     """
-    B = ppi_scores.shape[0]
-    if B < 2:
+    if ppi_scores.dim() != 2:
+        raise ValueError(f"ppi_scores must be a matrix, got {tuple(ppi_scores.shape)}")
+    B, C = ppi_scores.shape
+    if B < 2 or C < 2:
         return {"acc": 0.0, "top100": 0.0, "top200": 0.0, "top300": 0.0,
                 "mrr": 0.0, "auprc": 0.0}
 
+    evidence_aware = any(
+        mask is not None
+        for mask in (candidate_mask, observed_label_mask, verified_negative_mask)
+    )
+
     if positive_mask is None:
+        if evidence_aware:
+            raise ValueError("Evidence-aware evaluation requires positive_mask")
+        if B != C:
+            raise ValueError(
+                "Legacy diagonal-positive evaluation requires a square score matrix"
+            )
         # Preserve the historical symmetric diagonal-only metric.
         scores = 0.5 * (ppi_scores + ppi_scores.T)
     else:
@@ -345,6 +371,17 @@ def compute_retrieval_metrics(
                 f"positive_mask shape {tuple(positive_mask.shape)} does not match "
                 f"score shape {tuple(scores.shape)}"
             )
+
+    def _prepare_mask(name: str, value: torch.Tensor | None, default: torch.Tensor) -> torch.Tensor:
+        if value is None:
+            return default
+        value = value.to(device=scores.device, dtype=torch.bool)
+        if value.shape != scores.shape:
+            raise ValueError(
+                f"{name} shape {tuple(value.shape)} does not match score shape "
+                f"{tuple(scores.shape)}"
+            )
+        return value
 
     # Guard against NaN/Inf in scores (model collapse / numerical instability)
     if not torch.isfinite(scores).all():
@@ -370,32 +407,66 @@ def compute_retrieval_metrics(
         metrics["auprc"] = compute_auprc(scores.detach().cpu().numpy())
         return metrics
 
-    def _hit_at_k(score_mat: torch.Tensor, pos_mask: torch.Tensor, k: int, dim: int) -> torch.Tensor:
+    all_cells = torch.ones_like(positive_mask, dtype=torch.bool)
+    candidates = _prepare_mask("candidate_mask", candidate_mask, all_cells)
+    observed_cells = _prepare_mask("observed_label_mask", observed_label_mask, candidates)
+    verified_negatives = _prepare_mask(
+        "verified_negative_mask",
+        verified_negative_mask,
+        torch.zeros_like(positive_mask, dtype=torch.bool),
+    )
+    if (positive_mask & ~candidates).any():
+        raise ValueError("positive_mask contains cells outside candidate_mask")
+    if (verified_negatives & ~candidates).any():
+        raise ValueError("verified_negative_mask contains cells outside candidate_mask")
+    if (positive_mask & verified_negatives).any():
+        raise ValueError("positive and verified-negative masks overlap")
+    if (positive_mask & ~observed_cells).any():
+        raise ValueError("observed_label_mask excludes primary positives")
+    if (observed_cells & ~candidates).any():
+        raise ValueError("observed_label_mask contains cells outside candidate_mask")
+
+    rank_scores = scores.masked_fill(~candidates, float("-inf"))
+
+    def _hit_at_k(
+        score_mat: torch.Tensor,
+        pos_mask: torch.Tensor,
+        candidate_cells: torch.Tensor,
+        k: int,
+        dim: int,
+    ) -> tuple[torch.Tensor, int]:
         k = min(k, score_mat.size(dim))
         if dim == 1:
-            valid = pos_mask.any(dim=1)
+            # A query with only one eligible candidate is a trivial retrieval
+            # problem and is excluded from query-macro rank metrics.
+            valid = pos_mask.any(dim=1) & (candidate_cells.sum(dim=1) >= 2)
             if not valid.any():
-                return score_mat.new_tensor(0.0)
+                return score_mat.new_tensor(0.0), 0
             topk = score_mat.topk(k=k, dim=1).indices
             hits = pos_mask.gather(1, topk).any(dim=1)
-            return hits[valid].float().mean()
-        valid = pos_mask.any(dim=0)
+            return hits[valid].float().mean(), int(valid.sum().item())
+        valid = pos_mask.any(dim=0) & (candidate_cells.sum(dim=0) >= 2)
         if not valid.any():
-            return score_mat.new_tensor(0.0)
+            return score_mat.new_tensor(0.0), 0
         topk = score_mat.topk(k=k, dim=0).indices
         hits = pos_mask.gather(0, topk).any(dim=0)
-        return hits[valid].float().mean()
+        return hits[valid].float().mean(), int(valid.sum().item())
 
-    def _mrr(score_mat: torch.Tensor, pos_mask: torch.Tensor, dim: int) -> torch.Tensor:
+    def _mrr(
+        score_mat: torch.Tensor,
+        pos_mask: torch.Tensor,
+        candidate_cells: torch.Tensor,
+        dim: int,
+    ) -> torch.Tensor:
         if dim == 1:
-            valid = pos_mask.any(dim=1)
+            valid = pos_mask.any(dim=1) & (candidate_cells.sum(dim=1) >= 2)
             if not valid.any():
                 return score_mat.new_tensor(0.0)
             order = score_mat.argsort(dim=1, descending=True)
             ranked_pos = pos_mask.gather(1, order)
             first = ranked_pos.float().argmax(dim=1).float() + 1.0
             return (1.0 / first[valid]).mean()
-        valid = pos_mask.any(dim=0)
+        valid = pos_mask.any(dim=0) & (candidate_cells.sum(dim=0) >= 2)
         if not valid.any():
             return score_mat.new_tensor(0.0)
         order = score_mat.argsort(dim=0, descending=True)
@@ -403,21 +474,68 @@ def compute_retrieval_metrics(
         first = ranked_pos.float().argmax(dim=0).float() + 1.0
         return (1.0 / first[valid]).mean()
 
-    acc_ab = _hit_at_k(scores, positive_mask, k=1, dim=1)
-    acc_ba = _hit_at_k(scores, positive_mask, k=1, dim=0)
-    metrics = {"acc": float((0.5 * (acc_ab + acc_ba)).item())}
+    metrics: dict[str, float | None] = {}
+    for k in (1, 5, 10, 20, 100, 200, 300):
+        hit_ab, n_ab = _hit_at_k(
+            rank_scores, positive_mask, candidates, k=k, dim=1
+        )
+        hit_ba, n_ba = _hit_at_k(
+            rank_scores, positive_mask, candidates, k=k, dim=0
+        )
+        metrics[f"hit_at_{k}_ab"] = float(hit_ab.item())
+        metrics[f"hit_at_{k}_ba"] = float(hit_ba.item())
+        metrics[f"hit_at_{k}"] = float((0.5 * (hit_ab + hit_ba)).item())
+        if k == 1:
+            n_queries_ab, n_queries_ba = n_ab, n_ba
 
+    # Backward-compatible aliases. New evidence-aware reporting should use the
+    # explicit Hit@K names above; K=100/200/300 often saturates small pools.
+    metrics["acc"] = metrics["hit_at_1"]
     for k in (100, 200, 300):
-        hit_ab = _hit_at_k(scores, positive_mask, k=k, dim=1)
-        hit_ba = _hit_at_k(scores, positive_mask, k=k, dim=0)
-        metrics[f"top{k}"] = float((0.5 * (hit_ab + hit_ba)).item())
+        metrics[f"top{k}"] = metrics[f"hit_at_{k}"]
 
-    mrr_ab = _mrr(scores, positive_mask, dim=1)
-    mrr_ba = _mrr(scores, positive_mask, dim=0)
+    mrr_ab = _mrr(rank_scores, positive_mask, candidates, dim=1)
+    mrr_ba = _mrr(rank_scores, positive_mask, candidates, dim=0)
+    metrics["mrr_ab"] = float(mrr_ab.item())
+    metrics["mrr_ba"] = float(mrr_ba.item())
     metrics["mrr"] = float((0.5 * (mrr_ab + mrr_ba)).item())
-    metrics["auprc"] = compute_auprc(
-        scores.detach().cpu().numpy(),
-        positive_mask.detach().cpu().numpy(),
+
+    score_np = scores.detach().cpu().numpy()
+    positive_np = positive_mask.detach().cpu().numpy()
+    observed_np = observed_cells.detach().cpu().numpy()
+    observed_y = positive_np[observed_np].astype(np.int8)
+    observed_score = score_np[observed_np]
+    if observed_y.sum() > 0 and observed_y.sum() < observed_y.size:
+        observed_auprc = float(average_precision_score(observed_y, observed_score))
+    else:
+        observed_auprc = None
+
+    judged = positive_mask | verified_negatives
+    judged_np = judged.detach().cpu().numpy()
+    judged_y = positive_np[judged_np].astype(np.int8)
+    judged_score = score_np[judged_np]
+    if judged_y.sum() > 0 and judged_y.sum() < judged_y.size:
+        strict_auprc = float(average_precision_score(judged_y, judged_score))
+        strict_auroc = float(roc_auc_score(judged_y, judged_score))
+    else:
+        strict_auprc = None
+        strict_auroc = None
+
+    # Keep `auprc` as a backward-compatible numeric alias, while emitting the
+    # explicit name required for reporting.  Under an evidence-aware protocol
+    # it is positive-vs-unlabelled, never a confirmed-negative binary AUPRC.
+    metrics["auprc"] = observed_auprc
+    metrics["observed_label_auprc"] = observed_auprc
+    metrics["strict_binary_auprc"] = strict_auprc
+    metrics["strict_binary_auroc"] = strict_auroc
+    metrics["positive_pairs"] = float(positive_mask.sum().item())
+    metrics["verified_negative_pairs"] = float(verified_negatives.sum().item())
+    metrics["unlabelled_candidate_pairs"] = float(
+        (candidates & ~positive_mask & ~verified_negatives).sum().item()
     )
+    metrics["candidate_pairs"] = float(candidates.sum().item())
+    metrics["observed_label_pairs"] = float(observed_cells.sum().item())
+    metrics["rank_queries_ab"] = float(n_queries_ab)
+    metrics["rank_queries_ba"] = float(n_queries_ba)
 
     return metrics

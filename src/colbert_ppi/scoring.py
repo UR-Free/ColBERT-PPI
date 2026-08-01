@@ -14,7 +14,6 @@ from typing import Iterable
 
 import numpy as np
 import torch
-from sklearn.metrics import average_precision_score
 from torch.utils.data import DataLoader
 
 CANONICAL_K = 1
@@ -161,34 +160,6 @@ def max_collapse(
     return output
 
 
-def retrieval_metrics(scores: np.ndarray, labels: np.ndarray) -> dict[str, float]:
-    """Micro AUPRC primary; query AP/MRR/Hit@1 are secondary diagnostics."""
-    if scores.shape != labels.shape or not np.isfinite(scores).all():
-        raise RuntimeError("Invalid score or label matrix")
-    query_ap: list[float] = []
-    reciprocal_ranks: list[float] = []
-    hit_at_1: list[float] = []
-    for directed_scores, directed_labels in ((scores, labels), (scores.T, labels.T)):
-        for index in range(directed_scores.shape[0]):
-            truth = directed_labels[index].astype(bool)
-            if not truth.any():
-                continue
-            values = directed_scores[index]
-            query_ap.append(
-                float(average_precision_score(truth.astype(np.int8), values))
-            )
-            order = np.argsort(-values, kind="stable")
-            first = int(np.flatnonzero(truth[order])[0]) + 1
-            reciprocal_ranks.append(1.0 / first)
-            hit_at_1.append(float(first == 1))
-    return {
-        "auprc": float(average_precision_score(labels.ravel(), scores.ravel())),
-        "macro_query_ap": float(np.mean(query_ap)),
-        "mrr": float(np.mean(reciprocal_ranks)),
-        "hit_at_1": float(np.mean(hit_at_1)),
-    }
-
-
 def mutual_rank_matrix_t02(logits: torch.Tensor) -> torch.Tensor:
     """Exact rank-mask construction used by the frozen T02 grid search."""
     rows, cols = logits.shape
@@ -317,16 +288,6 @@ def canonical_score_dataset(
         orientation: max_collapse(matrix, row_assignment, col_assignment, shape)
         for orientation, matrix in matrices.items()
     }
-    metrics = {
-        scope: {
-            orientation: retrieval_metrics(matrix, metric_labels)
-            for orientation, matrix in scope_matrices.items()
-        }
-        for scope, scope_matrices, metric_labels in (
-            ("record", matrices, labels),
-            ("collapsed", collapsed, collapsed_labels),
-        )
-    }
     arrays = {
         "labels": labels.astype(np.int8),
         "collapsed_labels": collapsed_labels.astype(np.int8),
@@ -352,6 +313,5 @@ def canonical_score_dataset(
             "collapsed_cols": int(n_cols),
             "collapsed_positives": int(collapsed_labels.sum()),
         },
-        "metrics": metrics,
     }
     return arrays, payload

@@ -39,7 +39,13 @@ from colbert_ppi.dataset import (
     SaProtLoRAContactDataset,
     SaProtLoRAExplicitContactDataset,
 )
-from colbert_ppi.eval_labels import collapse_retrieval_by_uniprot, load_positive_mask
+from colbert_ppi.eval_labels import (
+    RetrievalLabelProtocol,
+    collapse_retrieval_by_uniprot,
+    collapse_retrieval_protocol_by_uniprot,
+    load_positive_mask,
+    load_retrieval_label_protocol,
+)
 from colbert_ppi.retrieval import compute_retrieval_metrics
 from colbert_ppi.model import create_model
 from colbert_ppi.trainer import run_eval_epoch
@@ -50,10 +56,28 @@ logger = logging.getLogger(__name__)
 EVAL_CSV_COLUMNS = [
     "epoch",
     "val_auprc",
+    "val_observed_label_auprc",
+    "val_strict_binary_auprc",
+    "val_strict_binary_auroc",
+    "val_mrr",
     "test_auprc",
+    "test_observed_label_auprc",
+    "test_strict_binary_auprc",
+    "test_strict_binary_auroc",
+    "test_mrr",
     "val_uniprot_max_auprc",
+    "val_uniprot_max_observed_label_auprc",
+    "val_uniprot_max_mrr",
+    "val_uniprot_max_hit_at_1",
+    "val_uniprot_max_hit_at_5",
+    "val_uniprot_max_hit_at_10",
     "val_uniprot_mean_auprc",
     "test_uniprot_max_auprc",
+    "test_uniprot_max_observed_label_auprc",
+    "test_uniprot_max_mrr",
+    "test_uniprot_max_hit_at_1",
+    "test_uniprot_max_hit_at_5",
+    "test_uniprot_max_hit_at_10",
     "test_uniprot_mean_auprc",
     "val_uniprot_unique_positive_edges",
     "test_uniprot_unique_positive_edges",
@@ -74,6 +98,7 @@ def add_uniprot_collapse_metrics(
     stage: str,
     score_output: dict,
     positive_mask: Optional[torch.Tensor],
+    label_protocol: Optional[RetrievalLabelProtocol],
     samples,
 ) -> None:
     """Append UniProt Max/Mean-collapse metrics to an eval result dict."""
@@ -81,16 +106,27 @@ def add_uniprot_collapse_metrics(
     if scores is None:
         return
     for reduction in ("max", "mean"):
-        collapsed_scores, collapsed_positive, metadata = collapse_retrieval_by_uniprot(
-            scores,
-            positive_mask,
-            samples,
-            reduction=reduction,
-        )
-        collapsed_metrics = compute_retrieval_metrics(
-            torch.from_numpy(collapsed_scores).float(),
-            positive_mask=torch.from_numpy(collapsed_positive),
-        )
+        if label_protocol is not None:
+            collapsed_scores, collapsed_protocol, metadata = (
+                collapse_retrieval_protocol_by_uniprot(
+                    scores, label_protocol, samples, reduction=reduction
+                )
+            )
+            collapsed_metrics = compute_retrieval_metrics(
+                torch.from_numpy(collapsed_scores).float(),
+                positive_mask=collapsed_protocol.positive_mask,
+                candidate_mask=collapsed_protocol.candidate_mask,
+                observed_label_mask=collapsed_protocol.observed_label_mask,
+                verified_negative_mask=collapsed_protocol.verified_negative_mask,
+            )
+        else:
+            collapsed_scores, collapsed_positive, metadata = collapse_retrieval_by_uniprot(
+                scores, positive_mask, samples, reduction=reduction
+            )
+            collapsed_metrics = compute_retrieval_metrics(
+                torch.from_numpy(collapsed_scores).float(),
+                positive_mask=torch.from_numpy(collapsed_positive),
+            )
         prefix = f"{stage}_uniprot_{reduction}_"
         for key, value in collapsed_metrics.items():
             metrics[f"{prefix}{key}"] = value
@@ -257,7 +293,20 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
     val_dataset = load_val_dataset(train_args, v8_root)
     logger.info(f"Val dataset: {len(val_dataset)} pairs")
     val_positive_mask = None
-    if train_args.get("val_calibrated_pairs"):
+    val_label_protocol = None
+    if train_args.get("val_label_protocol"):
+        val_label_protocol = load_retrieval_label_protocol(
+            train_args["val_label_protocol"], val_dataset.samples
+        )
+        val_positive_mask = val_label_protocol.positive_mask
+        logger.info(
+            "Val evidence protocol %s: positive=%d verified_negative=%d candidate=%d",
+            val_label_protocol.protocol_version,
+            int(val_label_protocol.positive_mask.sum()),
+            int(val_label_protocol.verified_negative_mask.sum()),
+            int(val_label_protocol.candidate_mask.sum()),
+        )
+    elif train_args.get("val_calibrated_pairs"):
         val_positive_mask = load_positive_mask(train_args["val_calibrated_pairs"], val_dataset.samples)
         logger.info(
             f"Val calibrated positive mask: {int(val_positive_mask.sum().item())} positives "
@@ -285,12 +334,25 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
     test_dataset = None
     test_loader = None
     test_positive_mask = None
+    test_label_protocol = None
     test_score_mask1 = None
     if run_test_each_epoch:
         logger.info("Loading test dataset...")
         test_dataset = load_test_dataset(train_args, v8_root)
         logger.info(f"Test dataset: {len(test_dataset)} pairs")
-        if train_args.get("test_calibrated_pairs"):
+        if train_args.get("test_label_protocol"):
+            test_label_protocol = load_retrieval_label_protocol(
+                train_args["test_label_protocol"], test_dataset.samples
+            )
+            test_positive_mask = test_label_protocol.positive_mask
+            logger.info(
+                "Test evidence protocol %s: positive=%d verified_negative=%d candidate=%d",
+                test_label_protocol.protocol_version,
+                int(test_label_protocol.positive_mask.sum()),
+                int(test_label_protocol.verified_negative_mask.sum()),
+                int(test_label_protocol.candidate_mask.sum()),
+            )
+        elif train_args.get("test_calibrated_pairs"):
             test_positive_mask = load_positive_mask(
                 train_args["test_calibrated_pairs"], test_dataset.samples
             )
@@ -411,6 +473,15 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
             stage="val",
             show_progress=True,
             positive_mask=val_positive_mask,
+            candidate_mask=(
+                val_label_protocol.candidate_mask if val_label_protocol else None
+            ),
+            observed_label_mask=(
+                val_label_protocol.observed_label_mask if val_label_protocol else None
+            ),
+            verified_negative_mask=(
+                val_label_protocol.verified_negative_mask if val_label_protocol else None
+            ),
             score_mask1_by_label=val_score_mask1,
             score_output=val_score_output,
         )
@@ -419,6 +490,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
             stage="val",
             score_output=val_score_output,
             positive_mask=val_positive_mask,
+            label_protocol=val_label_protocol,
             samples=val_dataset.samples,
         )
 
@@ -437,6 +509,16 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
                 stage="test",
                 show_progress=True,
                 positive_mask=test_positive_mask,
+                candidate_mask=(
+                    test_label_protocol.candidate_mask if test_label_protocol else None
+                ),
+                observed_label_mask=(
+                    test_label_protocol.observed_label_mask if test_label_protocol else None
+                ),
+                verified_negative_mask=(
+                    test_label_protocol.verified_negative_mask
+                    if test_label_protocol else None
+                ),
                 score_mask1_by_label=test_score_mask1,
                 score_output=test_score_output,
             )
@@ -445,6 +527,7 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
                 stage="test",
                 score_output=test_score_output,
                 positive_mask=test_positive_mask,
+                label_protocol=test_label_protocol,
                 samples=test_dataset.samples,
             )
 
@@ -470,9 +553,15 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
         )
         logger.info(f"Selected metrics appended to {eval_csv_path}")
 
-        # Track best validation AUPRC for logging.
+        # Track the preregistered validation metric for logging.
         selection_metric = train_args.get("eval_selection_metric", "val_auprc")
-        val_auprc = val_metrics.get(selection_metric, 0.0)
+        selection_value = val_metrics.get(selection_metric)
+        if not isinstance(selection_value, (int, float)):
+            raise RuntimeError(
+                f"Selection metric {selection_metric!r} is unavailable: "
+                f"{selection_value!r}"
+            )
+        val_auprc = float(selection_value)
         if val_auprc > best_val_auprc:
             best_val_auprc = val_auprc
             message = (

@@ -47,9 +47,12 @@ class TrainingConfig:
     eval_freq: int = 1  # evaluate every N epochs
     sync_eval: bool = False
     eval_selection_metric: str = "val_auprc"
+    val_label_protocol: str = ""
+    test_label_protocol: str = ""
     # Historical runs monitored test every epoch. New leakage-controlled runs
     # disable this and score test once after validation-only checkpoint choice.
     eval_test_each_epoch: bool = True
+    final_test_after_training: bool = False
 
     # --- Data ---
     max_seq_len: Optional[int] = None   # eval (None = no truncation)

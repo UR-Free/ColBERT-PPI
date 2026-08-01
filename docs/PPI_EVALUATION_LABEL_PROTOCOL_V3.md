@@ -40,6 +40,10 @@ explicit operational name and include class counts and prevalence.
 Negatome-supported negatives and are `null` when a class is absent. They are a
 sensitivity analysis, not a prerequisite for the primary AUPRC.
 
+Primary manuscript values use UniProt max-collapsed entity scores and masks
+for operational AUPRC/AUROC as well as rank metrics. Record-level outputs are
+ledger/QC results and must be labelled accordingly.
+
 Entity-level bidirectional MRR and Hit@1/5/10/20 are reported after max
 collapse of duplicate canonical UniProt records. Checkpoint selection remains
 `val_uniprot_max_mrr`; test is evaluated once after all choices are frozen.

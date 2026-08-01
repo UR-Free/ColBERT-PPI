@@ -136,7 +136,7 @@ colbert-ppi-evaluate \
   --run-dir outputs/run_YYYYMMDD_HHMMSS \
   --checkpoint best_model.pt \
   --split test \
-  --protocol results/ppi_label_protocol_v2/pinder_test_hetero_afdb.evidence_labels.npz \
+  --protocol results/ppi_label_protocol_v3/pinder_test_hetero_afdb.evidence_labels.npz \
   --output-dir results/test
 ```
 
@@ -146,13 +146,14 @@ largest `N=10` retained similarities and averages the two orientation scores.
 The implementation lives in
 [`src/colbert_ppi/scoring.py`](src/colbert_ppi/scoring.py).
 
-PINDER off-diagonal pairs are not assumed to be negatives. The evidence NPZ
-separates structural positives, verified negative evidence, unlabelled
-candidates, STRING association censoring and ineligible pairs. Primary PINDER
-endpoints are UniProt Max-collapsed bidirectional MRR and Hit@1/5/10/20;
-positive-versus-unlabelled AUPRC is secondary, and strict binary AUPRC/AUROC is
-`null` when either judged class is absent. See
-[the evidence-label protocol](docs/PPI_EVALUATION_LABEL_PROTOCOL_V2.md).
+For binary evaluation, eligible same-organism pairs absent from the structural
+positive set and the frozen STRING association set are prespecified as
+database-absence operational negatives. The reportable endpoint is
+`operational_binary_auprc`, accompanied by its positive/negative counts and
+prevalence. Negatome-supported negatives remain a stricter sensitivity tier
+and may yield `null` when absent. Entity-level bidirectional MRR and
+Hit@1/5/10/20 are reported from the same frozen candidate universe. See
+[the evidence-label protocol](docs/PPI_EVALUATION_LABEL_PROTOCOL_V3.md).
 
 Protein–protein and protein–nucleic protocols are separate. The optional
 protein–nucleic entry point is:

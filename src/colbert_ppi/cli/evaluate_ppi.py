@@ -108,8 +108,9 @@ def main() -> int:
         "version": protocol.protocol_version,
         "source": str(args.protocol),
         "semantics": (
-            "PINDER off-diagonal candidates are unlabelled unless exact "
-            "verified-negative evidence is present"
+            "Binary AUPRC uses prespecified database-absence operational "
+            "negatives; Negatome-supported negatives are a stricter "
+            "sensitivity tier, not a requirement for the primary metric."
         ),
     }
     payload["metrics"] = {

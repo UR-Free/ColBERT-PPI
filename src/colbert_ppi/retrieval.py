@@ -331,8 +331,9 @@ def compute_retrieval_metrics(
         Biologically eligible candidates used for rank metrics. Cells outside
         this mask are excluded rather than treated as negatives.
     observed_label_mask : (N, M) bool, optional
-        Cells used for the descriptive positive-vs-unlabelled AUPRC. This mask
-        may censor known associations that are not direct physical positives.
+        Compatibility name for the operational binary evaluation set:
+        structural positives plus prespecified database-absence negatives.
+        Known associations that lack structural labels may be censored.
     verified_negative_mask : (N, M) bool, optional
         Experimentally supported negative evidence. Strict binary AUPRC/AUROC
         are computed only on positives plus these negatives.
@@ -340,7 +341,7 @@ def compute_retrieval_metrics(
     Returns
     -------
     metrics : dict
-        Rank metrics plus explicit observed-label and strict-binary metrics.
+        Rank metrics plus explicit operational-binary and strict-binary metrics.
     """
     if ppi_scores.dim() != 2:
         raise ValueError(f"ppi_scores must be a matrix, got {tuple(ppi_scores.shape)}")
@@ -425,6 +426,11 @@ def compute_retrieval_metrics(
         raise ValueError("observed_label_mask excludes primary positives")
     if (observed_cells & ~candidates).any():
         raise ValueError("observed_label_mask contains cells outside candidate_mask")
+    operational_negatives = observed_cells & ~positive_mask
+    if (verified_negatives & ~operational_negatives).any():
+        raise ValueError(
+            "verified negatives must be included in the operational-negative set"
+        )
 
     rank_scores = scores.masked_fill(~candidates, float("-inf"))
 
@@ -502,13 +508,17 @@ def compute_retrieval_metrics(
 
     score_np = scores.detach().cpu().numpy()
     positive_np = positive_mask.detach().cpu().numpy()
-    observed_np = observed_cells.detach().cpu().numpy()
-    observed_y = positive_np[observed_np].astype(np.int8)
-    observed_score = score_np[observed_np]
-    if observed_y.sum() > 0 and observed_y.sum() < observed_y.size:
-        observed_auprc = float(average_precision_score(observed_y, observed_score))
+    operational_judged_np = observed_cells.detach().cpu().numpy()
+    operational_y = positive_np[operational_judged_np].astype(np.int8)
+    operational_score = score_np[operational_judged_np]
+    if operational_y.sum() > 0 and operational_y.sum() < operational_y.size:
+        operational_auprc = float(
+            average_precision_score(operational_y, operational_score)
+        )
+        operational_auroc = float(roc_auc_score(operational_y, operational_score))
     else:
-        observed_auprc = None
+        operational_auprc = None
+        operational_auroc = None
 
     judged = positive_mask | verified_negatives
     judged_np = judged.detach().cpu().numpy()
@@ -521,20 +531,29 @@ def compute_retrieval_metrics(
         strict_auprc = None
         strict_auroc = None
 
-    # Keep `auprc` as a backward-compatible numeric alias, while emitting the
-    # explicit name required for reporting.  Under an evidence-aware protocol
-    # it is positive-vs-unlabelled, never a confirmed-negative binary AUPRC.
-    metrics["auprc"] = observed_auprc
-    metrics["observed_label_auprc"] = observed_auprc
+    # Keep historical names as aliases, but report the explicit operational
+    # name in manuscripts. Database absence is not proof of non-interaction.
+    metrics["auprc"] = operational_auprc
+    metrics["observed_label_auprc"] = operational_auprc
+    metrics["operational_binary_auprc"] = operational_auprc
+    metrics["operational_binary_auroc"] = operational_auroc
     metrics["strict_binary_auprc"] = strict_auprc
     metrics["strict_binary_auroc"] = strict_auroc
     metrics["positive_pairs"] = float(positive_mask.sum().item())
+    metrics["operational_negative_pairs"] = float(
+        operational_negatives.sum().item()
+    )
     metrics["verified_negative_pairs"] = float(verified_negatives.sum().item())
     metrics["unlabelled_candidate_pairs"] = float(
-        (candidates & ~positive_mask & ~verified_negatives).sum().item()
+        (candidates & ~positive_mask & ~operational_negatives).sum().item()
     )
     metrics["candidate_pairs"] = float(candidates.sum().item())
     metrics["observed_label_pairs"] = float(observed_cells.sum().item())
+    metrics["operational_binary_pairs"] = float(observed_cells.sum().item())
+    metrics["operational_positive_prevalence"] = (
+        float(positive_mask.sum().item() / observed_cells.sum().item())
+        if observed_cells.any() else None
+    )
     metrics["rank_queries_ab"] = float(n_queries_ab)
     metrics["rank_queries_ba"] = float(n_queries_ba)
 

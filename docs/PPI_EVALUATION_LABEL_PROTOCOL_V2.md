@@ -1,5 +1,8 @@
 # PPI validation/test evidence protocol v2
 
+> Historical protocol. Use `PPI_EVALUATION_LABEL_PROTOCOL_V3.md` for the
+> reportable database-absence operational-negative AUPRC.
+
 ## Why this protocol exists
 
 The PINDER validation and test files contain experimentally resolved positive

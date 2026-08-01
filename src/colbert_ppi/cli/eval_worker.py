@@ -57,16 +57,22 @@ EVAL_CSV_COLUMNS = [
     "epoch",
     "val_auprc",
     "val_observed_label_auprc",
+    "val_operational_binary_auprc",
+    "val_operational_binary_auroc",
     "val_strict_binary_auprc",
     "val_strict_binary_auroc",
     "val_mrr",
     "test_auprc",
     "test_observed_label_auprc",
+    "test_operational_binary_auprc",
+    "test_operational_binary_auroc",
     "test_strict_binary_auprc",
     "test_strict_binary_auroc",
     "test_mrr",
     "val_uniprot_max_auprc",
     "val_uniprot_max_observed_label_auprc",
+    "val_uniprot_max_operational_binary_auprc",
+    "val_uniprot_max_operational_binary_auroc",
     "val_uniprot_max_mrr",
     "val_uniprot_max_hit_at_1",
     "val_uniprot_max_hit_at_5",
@@ -74,6 +80,8 @@ EVAL_CSV_COLUMNS = [
     "val_uniprot_mean_auprc",
     "test_uniprot_max_auprc",
     "test_uniprot_max_observed_label_auprc",
+    "test_uniprot_max_operational_binary_auprc",
+    "test_uniprot_max_operational_binary_auroc",
     "test_uniprot_max_mrr",
     "test_uniprot_max_hit_at_1",
     "test_uniprot_max_hit_at_5",
@@ -300,9 +308,11 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
         )
         val_positive_mask = val_label_protocol.positive_mask
         logger.info(
-            "Val evidence protocol %s: positive=%d verified_negative=%d candidate=%d",
+            "Val evidence protocol %s: positive=%d operational_negative=%d "
+            "verified_negative=%d candidate=%d",
             val_label_protocol.protocol_version,
             int(val_label_protocol.positive_mask.sum()),
+            int(val_label_protocol.operational_negative_mask.sum()),
             int(val_label_protocol.verified_negative_mask.sum()),
             int(val_label_protocol.candidate_mask.sum()),
         )
@@ -346,9 +356,11 @@ def run_eval_worker(output_dir: Path, device: torch.device, eval_port: int = 295
             )
             test_positive_mask = test_label_protocol.positive_mask
             logger.info(
-                "Test evidence protocol %s: positive=%d verified_negative=%d candidate=%d",
+                "Test evidence protocol %s: positive=%d operational_negative=%d "
+                "verified_negative=%d candidate=%d",
                 test_label_protocol.protocol_version,
                 int(test_label_protocol.positive_mask.sum()),
+                int(test_label_protocol.operational_negative_mask.sum()),
                 int(test_label_protocol.verified_negative_mask.sum()),
                 int(test_label_protocol.candidate_mask.sum()),
             )

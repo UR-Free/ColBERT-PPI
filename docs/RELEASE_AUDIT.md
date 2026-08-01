@@ -62,3 +62,12 @@ local release commit exactly.
 Ruff was not installed in the active SaProt environment for this update; the
 earlier release-level Ruff result remains historical rather than being claimed
 for the new diff.
+
+## 2026-08-01 operational-negative v3 update
+
+- changed the reportable binary endpoint to structural positives versus
+  prespecified database-absence operational negative controls;
+- retained Negatome-only strict metrics as a sensitivity tier;
+- added explicit AUPRC/AUROC, negative-count and prevalence outputs;
+- preserved validation-MRR checkpoint selection and the final-test firewall;
+- synchronized the model-agnostic evaluator, builder, documentation and tests.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build auditable three-state PPI labels for PINDER retrieval evaluation.
+"""Build auditable PPI labels for PINDER retrieval evaluation.
 
 The PINDER validation/test tables provide experimentally resolved positive
 complexes, but the off-diagonal cells in their Cartesian retrieval matrices
@@ -8,16 +8,20 @@ separates four concepts that the legacy diagonal/zero matrix conflated:
 
 * structural positives: PINDER complexes, expanded across duplicate UniProt
   records within the same split;
-* verified negative evidence: exact UniProt pairs in Negatome 2.0 manual
-  stringent, unless any positive/association evidence conflicts;
-* unlabelled candidates: biologically eligible same-species pairs with no
-  positive or negative evidence;
+* operational negatives: eligible same-species pairs absent from the PINDER
+  positive set and the prespecified STRING association set;
+* verified negative evidence: the subset of operational negatives supported
+  by an exact UniProt pair in Negatome 2.0 manual-stringent;
+* unlabelled candidates: eligible pairs carrying STRING association evidence
+  but no PINDER structural-positive label;
 * censored/ineligible cells: STRING associations, train/validation edge
   overlap, cross-species pairs, and cells with missing taxonomy.
 
-STRING is deliberately used only as a censoring source.  Its association score
-does not establish direct physical binding and must not promote a pair to a
-physical-interaction positive.
+This follows the common benchmark convention, also used by RF2-PPI, of using
+database-absence pairs as negative controls. Such pairs are explicitly named
+"operational negatives": STRING absence is not proof that two proteins cannot
+interact. STRING associations are censoring evidence and never promote a pair
+to a direct physical-interaction positive.
 """
 from __future__ import annotations
 
@@ -36,7 +40,7 @@ import numpy as np
 
 ROOT = Path.cwd().resolve()
 ACCESSION_RE = re.compile(r"_([A-Za-z0-9]+(?:-\d+)?)-[RL](?:\.pdb)?$")
-PROTOCOL_VERSION = "pinder_ppi_evidence_v2"
+PROTOCOL_VERSION = "pinder_ppi_evidence_v3_absence_negative"
 
 
 def sha256(path: Path) -> str:
@@ -212,7 +216,8 @@ def build_split(
 
     split_edges = edge_set(records)
     positive = np.zeros((n, n), dtype=bool)
-    negative = np.zeros((n, n), dtype=bool)
+    operational_negative = np.zeros((n, n), dtype=bool)
+    verified_negative = np.zeros((n, n), dtype=bool)
     candidate = np.zeros((n, n), dtype=bool)
     observed_label = np.zeros((n, n), dtype=bool)
     association_censor = np.zeros((n, n), dtype=bool)
@@ -254,12 +259,13 @@ def build_split(
                 is_positive or has_association or is_train_overlap or is_selection_overlap
             )
             negative_conflict[i, j] = conflict
-            negative[i, j] = eligible and has_negative and not conflict
-
-            # Observed-label AP is a positive-vs-unlabelled sensitivity, not a
-            # verified binary metric.  Known STRING associations are censored
-            # so they cannot be counted as nominal zeroes.
-            observed_label[i, j] = eligible and not has_association
+            operational_negative[i, j] = (
+                eligible and not is_positive and not has_association
+            )
+            verified_negative[i, j] = (
+                operational_negative[i, j] and has_negative and not conflict
+            )
+            observed_label[i, j] = positive[i, j] or operational_negative[i, j]
 
             statuses: list[str] = []
             if is_positive:
@@ -278,11 +284,13 @@ def build_split(
                 statuses.append("evidence_conflict")
             if positive[i, j]:
                 label_state = "structural_positive"
-            elif negative[i, j]:
-                label_state = "verified_negative"
+            elif verified_negative[i, j]:
+                label_state = "operational_negative_verified_by_negatome"
+            elif operational_negative[i, j]:
+                label_state = "operational_negative"
             elif candidate[i, j]:
-                label_state = "unlabelled_candidate"
-                statuses.append("unlabelled_candidate")
+                label_state = "association_censored_unlabelled"
+                statuses.append("association_censored_unlabelled")
             else:
                 label_state = "ineligible"
             ledger.append(
@@ -298,7 +306,8 @@ def build_split(
                     "label_state": label_state,
                     "statuses": "|".join(statuses),
                     "primary_positive": int(positive[i, j]),
-                    "verified_negative": int(negative[i, j]),
+                    "operational_negative": int(operational_negative[i, j]),
+                    "verified_negative": int(verified_negative[i, j]),
                     "retrieval_candidate": int(candidate[i, j]),
                     "observed_label_evaluable": int(observed_label[i, j]),
                     "same_organism": int(same_species[i, j]),
@@ -312,15 +321,18 @@ def build_split(
                 }
             )
 
-    if np.any(positive & negative):
-        raise RuntimeError(f"{name}: positive and negative masks overlap")
-    if np.any(positive & ~candidate) or np.any(negative & ~candidate):
+    if np.any(positive & operational_negative):
+        raise RuntimeError(f"{name}: positive and operational-negative masks overlap")
+    if np.any(verified_negative & ~operational_negative):
+        raise RuntimeError(f"{name}: verified negatives must be operational negatives")
+    if np.any(positive & ~candidate) or np.any(operational_negative & ~candidate):
         raise RuntimeError(f"{name}: judged labels must be retrieval candidates")
     if np.any(positive & ~observed_label):
         raise RuntimeError(f"{name}: every primary positive must be observed-label evaluable")
 
-    unknown = candidate & ~positive & ~negative
-    judged = positive | negative
+    unknown = candidate & ~positive & ~operational_negative
+    judged = positive | operational_negative
+    strict_judged = positive | verified_negative
     output_npz = output_dir / f"{name}.evidence_labels.npz"
     np.savez_compressed(
         output_npz,
@@ -330,9 +342,11 @@ def build_split(
         receptor_accessions=receptor_accessions,
         ligand_accessions=ligand_accessions,
         positive_mask=positive,
-        verified_negative_mask=negative,
+        operational_negative_mask=operational_negative,
+        verified_negative_mask=verified_negative,
         unknown_mask=unknown,
         judged_mask=judged,
+        strict_judged_mask=strict_judged,
         candidate_mask=candidate,
         observed_label_mask=observed_label,
         association_censor_mask=association_censor,
@@ -350,7 +364,7 @@ def build_split(
             "receptor_row", "ligand_col", "receptor_id", "ligand_id",
             "receptor_uniprot", "ligand_uniprot", "receptor_species",
             "ligand_species", "label_state", "statuses", "primary_positive",
-            "verified_negative", "retrieval_candidate",
+            "operational_negative", "verified_negative", "retrieval_candidate",
             "observed_label_evaluable", "same_organism", "train_overlap",
             "selection_overlap", "string_association_censor",
             "evidence_conflict", "negatome_evidence",
@@ -391,10 +405,15 @@ def build_split(
         "diagonal_exclusion_combinations": dict(
             sorted(diagonal_exclusion_combinations.items())
         ),
-        "verified_negative_cells": int(negative.sum()),
+        "operational_negative_cells": int(operational_negative.sum()),
+        "verified_negative_cells": int(verified_negative.sum()),
         "unknown_candidate_cells": int(unknown.sum()),
         "retrieval_candidate_cells": int(candidate.sum()),
         "observed_label_evaluable_cells": int(observed_label.sum()),
+        "operational_positive_prevalence": (
+            float(positive.sum() / observed_label.sum())
+            if observed_label.any() else None
+        ),
         "string_association_censored_cells": int(association_censor.sum()),
         "train_overlap_cells": int(train_overlap.sum()),
         "selection_overlap_cells": int(selection_overlap.sum()),
@@ -443,7 +462,7 @@ def main() -> None:
         default="data/external_binary_ppi/upstream/negatome2_manual_stringent_20191101.txt",
     )
     parser.add_argument("--string-minimum-score", type=float, default=0.7)
-    parser.add_argument("--output-dir", default="results/ppi_label_protocol_v2")
+    parser.add_argument("--output-dir", default="results/ppi_label_protocol_v3")
     args = parser.parse_args()
 
     paths = {
@@ -496,8 +515,9 @@ def main() -> None:
     manifest = {
         "protocol_version": PROTOCOL_VERSION,
         "purpose": (
-            "Three-state PPI retrieval labels: structural positive, verified "
-            "negative evidence, or unlabelled; no absence-as-negative assumption."
+            "PPI retrieval labels with structural positives, database-absence "
+            "operational negatives, association-censored candidates, and an "
+            "independent Negatome evidence tier."
         ),
         "rules": {
             "organism_group": (
@@ -510,13 +530,21 @@ def main() -> None:
                 "canonical UniProt records within the split; primary analysis "
                 "requires same-species eligibility and no train/selection overlap."
             ),
-            "negative": (
-                "Negatome 2.0 manual-stringent exact canonical UniProt pair only; "
-                "conflicts with any positive, STRING association, train edge, or "
-                "validation edge are censored rather than forced negative."
+            "operational_negative": (
+                "Eligible same-species pair absent from the split's PINDER "
+                "structural-positive edges and from STRING associations at the "
+                "prespecified score threshold. This is an assumed benchmark "
+                "negative, not proof of non-interaction."
+            ),
+            "verified_negative_evidence": (
+                "Negatome 2.0 manual-stringent exact canonical UniProt pair; it "
+                "is retained only when it is also an operational negative and "
+                "has no structural, STRING, train, or validation conflict."
             ),
             "unknown": (
-                "All other biologically eligible same-species candidate pairs."
+                "Eligible non-positive pairs with prespecified STRING association "
+                "evidence; retained as ranking competitors but excluded from the "
+                "operational binary endpoint."
             ),
             "string": (
                 "High-confidence STRING association is censoring evidence only, "
@@ -549,14 +577,15 @@ def main() -> None:
                 "MRR and Hit/Recall@K of known structural partners among eligible "
                 "same-species candidates; unlabelled candidates remain competitors."
             ),
-            "observed_label_auprc": (
-                "Positive-versus-unlabelled sensitivity after censoring known "
-                "associations; it is not a true-negative binary AUPRC."
+            "operational_binary_metrics": (
+                "AUPRC and AUROC over structural positives versus prespecified "
+                "database-absence operational negatives. The negative-control "
+                "construction and resulting prevalence must accompany the metric."
             ),
             "strict_binary_metrics": (
                 "Computed only over structural positives plus verified Negatome "
-                "negative evidence and reported as unavailable when either class "
-                "has insufficient coverage."
+                "negative evidence as a sensitivity analysis; reported as "
+                "unavailable when either class has insufficient coverage."
             ),
         },
     }

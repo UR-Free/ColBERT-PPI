@@ -26,10 +26,13 @@ class EvidenceProtocolTest(unittest.TestCase):
         candidate = torch.tensor(
             [[True, True, False], [True, True, True], [True, True, True]]
         )
-        observed = candidate.clone()
-        unknown = candidate & ~positive & ~negative
+        operational = candidate & ~positive
+        operational[2, 0] = False  # known association, censored from binary AP
+        observed = positive | operational
+        unknown = candidate & ~positive & ~operational
         result = RetrievalLabelProtocol(
             positive_mask=positive,
+            operational_negative_mask=operational,
             verified_negative_mask=negative,
             candidate_mask=candidate,
             observed_label_mask=observed,
@@ -59,6 +62,9 @@ class EvidenceProtocolTest(unittest.TestCase):
         self.assertEqual(metrics["hit_at_5"], 1.0)
         self.assertEqual(metrics["mrr"], 1.0)
         self.assertEqual(metrics["verified_negative_pairs"], 2.0)
+        self.assertEqual(metrics["operational_negative_pairs"], 4.0)
+        self.assertIsNotNone(metrics["operational_binary_auprc"])
+        self.assertIsNotNone(metrics["operational_binary_auroc"])
         self.assertIsNotNone(metrics["strict_binary_auprc"])
         self.assertIsNotNone(metrics["strict_binary_auroc"])
 
@@ -66,10 +72,15 @@ class EvidenceProtocolTest(unittest.TestCase):
         protocol = self.protocol()
         no_negatives = RetrievalLabelProtocol(
             positive_mask=protocol.positive_mask,
+            operational_negative_mask=protocol.operational_negative_mask,
             verified_negative_mask=torch.zeros_like(protocol.positive_mask),
             candidate_mask=protocol.candidate_mask,
             observed_label_mask=protocol.observed_label_mask,
-            unknown_mask=protocol.candidate_mask & ~protocol.positive_mask,
+            unknown_mask=(
+                protocol.candidate_mask
+                & ~protocol.positive_mask
+                & ~protocol.operational_negative_mask
+            ),
             source="synthetic",
             protocol_version="test-v1",
         )
@@ -100,6 +111,7 @@ class EvidenceProtocolTest(unittest.TestCase):
                 receptor_labels=np.asarray([item[0] for item in samples]),
                 ligand_labels=np.asarray([item[1] for item in samples]),
                 positive_mask=protocol.positive_mask.numpy(),
+                operational_negative_mask=protocol.operational_negative_mask.numpy(),
                 verified_negative_mask=protocol.verified_negative_mask.numpy(),
                 unknown_mask=protocol.unknown_mask.numpy(),
                 candidate_mask=protocol.candidate_mask.numpy(),
@@ -115,6 +127,7 @@ class EvidenceProtocolTest(unittest.TestCase):
         candidate = torch.ones((2, 2), dtype=torch.bool)
         protocol = RetrievalLabelProtocol(
             positive_mask=positive,
+            operational_negative_mask=torch.zeros_like(positive),
             verified_negative_mask=torch.zeros_like(positive),
             candidate_mask=candidate,
             observed_label_mask=candidate,
@@ -133,6 +146,7 @@ class EvidenceProtocolTest(unittest.TestCase):
         self.assertEqual(collapsed_scores.shape, (1, 1))
         self.assertAlmostEqual(float(collapsed_scores[0, 0]), 0.4)
         self.assertEqual(int(collapsed.positive_mask.sum()), 1)
+        self.assertEqual(int(collapsed.operational_negative_mask.sum()), 0)
         self.assertEqual(metadata["unique_positive_edges"], 1)
 
     def test_rectangular_entity_metrics(self) -> None:
@@ -150,6 +164,7 @@ class EvidenceProtocolTest(unittest.TestCase):
         )
         self.assertEqual(metrics["hit_at_1"], 1.0)
         self.assertEqual(metrics["mrr"], 1.0)
+        self.assertIsNotNone(metrics["operational_binary_auprc"])
         self.assertIsNone(metrics["strict_binary_auprc"])
 
 

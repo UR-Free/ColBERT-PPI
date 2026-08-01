@@ -109,9 +109,22 @@ def main() -> None:
     output = {
         "protocol_version": protocol.protocol_version,
         "semantics": {
-            "primary": "entity MRR and bidirectional Hit@1/5/10/20",
-            "observed_label_auprc": "positive-versus-unlabelled sensitivity",
-            "strict_binary": "positives versus verified negative evidence only",
+            "primary": (
+                "entity operational-binary AUPRC plus entity MRR and "
+                "bidirectional Hit@1/5/10/20"
+            ),
+            "operational_binary": (
+                "PINDER structural positives versus prespecified "
+                "database-absence negative controls"
+            ),
+            "strict_binary": (
+                "sensitivity analysis: positives versus Negatome-supported "
+                "negative evidence only"
+            ),
+            "negative_caveat": (
+                "Operational negatives are assumed controls and are not proof "
+                "of universal biochemical non-interaction."
+            ),
         },
         "inputs": {
             "scores": str(score_path),

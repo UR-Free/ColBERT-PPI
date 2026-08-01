@@ -16,17 +16,17 @@ _PINDER_UNIPROT_RE = re.compile(r"_([A-Za-z0-9]+(?:-\d+)?)-[RL]$")
 
 @dataclass(frozen=True)
 class RetrievalLabelProtocol:
-    """Three-state, evidence-aware labels for a retrieval matrix.
+    """Evidence-aware labels for a retrieval matrix.
 
     ``candidate_mask`` defines the biologically eligible retrieval universe.
-    ``positive_mask`` and ``verified_negative_mask`` are disjoint judged
-    subsets.  The remaining candidate cells are explicitly unlabelled.
-    ``observed_label_mask`` is the prespecified positive-vs-unlabelled
-    sensitivity set after censoring known associations; it must not be
-    described as a matrix of confirmed negatives.
+    ``operational_negative_mask`` contains prespecified database-absence
+    controls. ``verified_negative_mask`` is a stricter evidence tier and must
+    be a subset of the operational negatives. ``observed_label_mask`` is kept
+    as a compatibility name for positive OR operational-negative cells.
     """
 
     positive_mask: torch.Tensor
+    operational_negative_mask: torch.Tensor
     verified_negative_mask: torch.Tensor
     candidate_mask: torch.Tensor
     observed_label_mask: torch.Tensor
@@ -37,6 +37,7 @@ class RetrievalLabelProtocol:
     def validate(self) -> None:
         masks = {
             "positive_mask": self.positive_mask,
+            "operational_negative_mask": self.operational_negative_mask,
             "verified_negative_mask": self.verified_negative_mask,
             "candidate_mask": self.candidate_mask,
             "observed_label_mask": self.observed_label_mask,
@@ -50,17 +51,23 @@ class RetrievalLabelProtocol:
             raise ValueError(f"Protocol masks must be matrices, got {shape}")
         if (self.positive_mask & self.verified_negative_mask).any():
             raise ValueError("Positive and verified-negative masks overlap")
-        judged = self.positive_mask | self.verified_negative_mask
+        if (self.positive_mask & self.operational_negative_mask).any():
+            raise ValueError("Positive and operational-negative masks overlap")
+        if (self.verified_negative_mask & ~self.operational_negative_mask).any():
+            raise ValueError("Verified negatives must be operational negatives")
+        judged = self.positive_mask | self.operational_negative_mask
         if (judged & ~self.candidate_mask).any():
             raise ValueError("Judged labels must be retrieval candidates")
-        if (self.positive_mask & ~self.observed_label_mask).any():
-            raise ValueError("Every primary positive must be observed-label evaluable")
+        if not torch.equal(self.observed_label_mask, judged):
+            raise ValueError(
+                "observed_label_mask must equal positive OR operational-negative"
+            )
         if (self.observed_label_mask & ~self.candidate_mask).any():
             raise ValueError("Observed-label cells must be retrieval candidates")
         expected_unknown = (
             self.candidate_mask
             & ~self.positive_mask
-            & ~self.verified_negative_mask
+            & ~self.operational_negative_mask
         )
         if not torch.equal(self.unknown_mask, expected_unknown):
             raise ValueError("unknown_mask is inconsistent with candidate/judged masks")
@@ -205,9 +212,9 @@ def collapse_retrieval_protocol_by_uniprot(
     collapsed_scores = np.empty(shape, dtype=score_array.dtype)
     mask_names = (
         "positive_mask",
+        "operational_negative_mask",
         "verified_negative_mask",
         "candidate_mask",
-        "observed_label_mask",
     )
     source_masks = {
         name: getattr(protocol, name).detach().cpu().numpy().astype(bool, copy=False)
@@ -228,25 +235,39 @@ def collapse_retrieval_protocol_by_uniprot(
 
     # Evidence is keyed at the UniProt-pair level.  Still resolve any
     # unexpected conflict conservatively so it cannot survive entity collapse.
-    conflict = (
+    strict_conflict = (
         collapsed_masks["positive_mask"]
         & collapsed_masks["verified_negative_mask"]
     )
+    operational_conflict = (
+        collapsed_masks["positive_mask"]
+        & collapsed_masks["operational_negative_mask"]
+    )
+    conflict = strict_conflict | operational_conflict
     collapsed_masks["verified_negative_mask"][conflict] = False
+    collapsed_masks["operational_negative_mask"][conflict] = False
+    collapsed_masks["verified_negative_mask"] &= collapsed_masks[
+        "operational_negative_mask"
+    ]
+    observed = (
+        collapsed_masks["positive_mask"]
+        | collapsed_masks["operational_negative_mask"]
+    )
     unknown = (
         collapsed_masks["candidate_mask"]
         & ~collapsed_masks["positive_mask"]
-        & ~collapsed_masks["verified_negative_mask"]
+        & ~collapsed_masks["operational_negative_mask"]
     )
     collapsed_protocol = RetrievalLabelProtocol(
         positive_mask=torch.from_numpy(collapsed_masks["positive_mask"]),
+        operational_negative_mask=torch.from_numpy(
+            collapsed_masks["operational_negative_mask"]
+        ),
         verified_negative_mask=torch.from_numpy(
             collapsed_masks["verified_negative_mask"]
         ),
         candidate_mask=torch.from_numpy(collapsed_masks["candidate_mask"]),
-        observed_label_mask=torch.from_numpy(
-            collapsed_masks["observed_label_mask"]
-        ),
+        observed_label_mask=torch.from_numpy(observed),
         unknown_mask=torch.from_numpy(unknown),
         source=protocol.source,
         protocol_version=protocol.protocol_version,
@@ -259,6 +280,9 @@ def collapse_retrieval_protocol_by_uniprot(
         "unique_ligands": len(unique_ligands),
         "record_positive_pairs": int(protocol.positive_mask.sum().item()),
         "unique_positive_edges": int(collapsed_protocol.positive_mask.sum().item()),
+        "unique_operational_negative_edges": int(
+            collapsed_protocol.operational_negative_mask.sum().item()
+        ),
         "unique_verified_negative_edges": int(
             collapsed_protocol.verified_negative_mask.sum().item()
         ),
@@ -331,7 +355,6 @@ def load_retrieval_label_protocol(
         "ligand_labels",
         "positive_mask",
         "verified_negative_mask",
-        "unknown_mask",
         "candidate_mask",
         "observed_label_mask",
     }
@@ -366,12 +389,25 @@ def load_retrieval_label_protocol(
     def as_bool(name: str) -> torch.Tensor:
         return torch.from_numpy(np.asarray(payload[name], dtype=bool).copy())
 
+    positive = as_bool("positive_mask")
+    observed = as_bool("observed_label_mask")
+    operational_negative = (
+        as_bool("operational_negative_mask")
+        if "operational_negative_mask" in payload.files
+        else observed & ~positive
+    )
+    candidate = as_bool("candidate_mask")
+    # Recompute these derived masks so older v2 NPZ files remain loadable under
+    # the explicit v3 semantics without trusting a stale unknown-mask meaning.
+    observed = positive | operational_negative
+    unknown = candidate & ~positive & ~operational_negative
     protocol = RetrievalLabelProtocol(
-        positive_mask=as_bool("positive_mask"),
+        positive_mask=positive,
+        operational_negative_mask=operational_negative,
         verified_negative_mask=as_bool("verified_negative_mask"),
-        candidate_mask=as_bool("candidate_mask"),
-        observed_label_mask=as_bool("observed_label_mask"),
-        unknown_mask=as_bool("unknown_mask"),
+        candidate_mask=candidate,
+        observed_label_mask=observed,
+        unknown_mask=unknown,
         source=str(path),
         protocol_version=str(np.asarray(payload["protocol_version"]).item()),
     )

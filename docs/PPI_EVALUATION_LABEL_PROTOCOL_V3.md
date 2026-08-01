@@ -1,7 +1,7 @@
-# PPI validation/test evidence protocol v3
+# PPI validation/test evidence protocol v3.1
 
 PINDER supplies experimentally resolved positives but not a large
-assay-confirmed negative class. Protocol v3 follows the database-absence
+assay-confirmed negative class. Protocol v3.1 follows the database-absence
 negative-control convention used by proteome-scale benchmarks such as
 RF2-PPI: eligible protein pairs with no prespecified interaction evidence are
 used as operational negatives. These controls are not claims of universal
@@ -14,17 +14,20 @@ RF2-PPI source: Zhang et al., *Science* (2025),
 
 - **Positive:** same-organism PINDER structural edge with no train overlap;
   validation edges are also excluded from final test.
-- **Operational negative:** eligible same-organism, non-positive pair absent
-  from the frozen STRING association set at combined score 0.7 or above.
-- **Association-censored:** STRING-supported non-PINDER pair. It remains a rank
-  competitor but is excluded from binary AUPRC/AUROC.
+- **Operational negative:** eligible same-organism, non-positive pair for which
+  both accessions map to STRING and no edge is returned by the frozen network
+  query with `required_score=0` (the current API floor was 0.15).
+- **Unjudged:** STRING-supported non-PINDER pair or pair with incomplete STRING
+  mapping. It remains a rank competitor but is excluded from binary
+  AUPRC/AUROC.
 - **Strict negative evidence:** exact non-conflicting Negatome 2.0
   manual-stringent pair that is also an operational negative.
 - **Ineligible:** cross-organism, missing-taxonomy, train-overlap, or test-time
   validation-overlap cell.
 
 Every cell is recorded in an evidence ledger. The manifest records all input
-and output SHA-256 hashes, the STRING threshold, counts, and prevalence.
+and output SHA-256 hashes, STRING mapping coverage, query threshold, counts,
+and prevalence.
 
 ## Metrics
 
@@ -53,12 +56,14 @@ colbert-ppi-build-evidence-protocol \
   --test-csv data/processed/test_pairs.csv \
   --uniprot-metadata data/evidence/uniprot_metadata.tsv \
   --string-edges data/evidence/string_edges.tsv \
+  --string-mapping data/evidence/string_mapped_accessions.tsv \
+  --string-provenance data/evidence/source_provenance.json \
   --negatome data/evidence/negatome2_manual_stringent.txt \
-  --output-dir results/ppi_label_protocol_v3
+  --output-dir results/ppi_label_protocol_v3_1
 
 colbert-ppi-evaluate-score-matrix \
   --scores path/to/test_scores.npy \
   --pairs data/processed/test_pairs.csv \
-  --protocol results/ppi_label_protocol_v3/pinder_test_hetero_afdb.evidence_labels.npz \
+  --protocol results/ppi_label_protocol_v3_1/pinder_test_hetero_afdb.evidence_labels.npz \
   --output results/test_metrics.json
 ```

@@ -27,8 +27,10 @@ documented here before it enters publication-grade code.
 Status: active and binding for confirmatory validation and test evaluation.
 
 Structural PINDER edges define positives. Eligible same-organism pairs absent
-from both that structural-positive set and the frozen STRING association set
-define operational negative controls. This enables a reportable
+from both that structural-positive set and the frozen `required_score=0`
+STRING network query define operational negative controls only when both
+proteins have successful STRING mappings. Mapping failures remain unjudged.
+This enables a reportable
 `operational_binary_auprc`, but the controls must not be described as proven
 biochemical non-interactions. Exact non-conflicting Negatome manual-stringent
 edges remain a stricter sensitivity tier. STRING-supported non-PINDER pairs are

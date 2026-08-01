@@ -1,6 +1,6 @@
 # PPI validation/test evidence protocol v2
 
-> Historical protocol. Use `PPI_EVALUATION_LABEL_PROTOCOL_V3.md` for the
+> Historical protocol. Use `PPI_EVALUATION_LABEL_PROTOCOL_V3.md` (v3.1) for the
 > reportable database-absence operational-negative AUPRC.
 
 ## Why this protocol exists

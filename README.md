@@ -136,7 +136,7 @@ colbert-ppi-evaluate \
   --run-dir outputs/run_YYYYMMDD_HHMMSS \
   --checkpoint best_model.pt \
   --split test \
-  --protocol results/ppi_label_protocol_v3/pinder_test_hetero_afdb.evidence_labels.npz \
+  --protocol results/ppi_label_protocol_v3_1/pinder_test_hetero_afdb.evidence_labels.npz \
   --output-dir results/test
 ```
 
@@ -146,9 +146,10 @@ largest `N=10` retained similarities and averages the two orientation scores.
 The implementation lives in
 [`src/colbert_ppi/scoring.py`](src/colbert_ppi/scoring.py).
 
-For binary evaluation, eligible same-organism pairs absent from the structural
-positive set and the frozen STRING association set are prespecified as
-database-absence operational negatives. The reportable endpoint is
+For binary evaluation, eligible same-organism pairs whose proteins both map to
+STRING and that are absent from the structural-positive set and a frozen
+`required_score=0` STRING network query are prespecified as database-absence
+operational negatives. Unmapped pairs remain unjudged. The reportable endpoint is
 `operational_binary_auprc`, accompanied by its positive/negative counts and
 prevalence. Negatome-supported negatives remain a stricter sensitivity tier
 and may yield `null` when absent. Entity-level bidirectional MRR and

@@ -76,3 +76,5 @@ for the new diff.
   `8160eb1aa8c623d7d938af61f4d65b2a0922482d`; its tree matched the reviewed
   local tree `bb75e60591b5cde97361fa655bc312a642807c24` before this audit-note-only
   follow-up.
+- v3.1 then tightened absence to a frozen STRING `required_score=0` query and
+  requires successful mapping of both accessions; unmapped pairs are unjudged.

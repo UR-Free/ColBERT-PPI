@@ -40,7 +40,7 @@ import numpy as np
 
 ROOT = Path.cwd().resolve()
 ACCESSION_RE = re.compile(r"_([A-Za-z0-9]+(?:-\d+)?)-[RL](?:\.pdb)?$")
-PROTOCOL_VERSION = "pinder_ppi_evidence_v3_absence_negative"
+PROTOCOL_VERSION = "pinder_ppi_evidence_v3_1_string_any_coverage"
 
 
 def sha256(path: Path) -> str:
@@ -156,6 +156,21 @@ def read_string_associations(path: Path, minimum_score: float) -> set[tuple[str,
     return edges
 
 
+def read_string_mapping(path: Path) -> set[str]:
+    """Return canonical UniProt accessions with a successful STRING mapping."""
+    mapped: set[str] = set()
+    with path.open(newline="") as handle:
+        header = handle.readline()
+        handle.seek(0)
+        delimiter = "\t" if header.count("\t") > header.count(",") else ","
+        for row in csv.DictReader(handle, delimiter=delimiter):
+            accession = canonical_accession(row.get("uniprot", ""))
+            string_id = row.get("string_id", "").strip()
+            if accession and string_id:
+                mapped.add(accession)
+    return mapped
+
+
 def read_negatome(path: Path) -> dict[tuple[str, str], list[dict[str, str]]]:
     evidence: dict[tuple[str, str], list[dict[str, str]]] = {}
     with path.open() as handle:
@@ -199,6 +214,7 @@ def build_split(
     train_edges: set[tuple[str, str]],
     selection_edges: set[tuple[str, str]],
     string_edges: set[tuple[str, str]],
+    string_mapped_accessions: set[str],
     negatome: dict[tuple[str, str], list[dict[str, str]]],
     output_dir: Path,
 ) -> dict[str, object]:
@@ -221,6 +237,7 @@ def build_split(
     candidate = np.zeros((n, n), dtype=bool)
     observed_label = np.zeros((n, n), dtype=bool)
     association_censor = np.zeros((n, n), dtype=bool)
+    string_coverage = np.zeros((n, n), dtype=bool)
     train_overlap = np.zeros((n, n), dtype=bool)
     selection_overlap = np.zeros((n, n), dtype=bool)
     same_species = np.zeros((n, n), dtype=bool)
@@ -239,6 +256,10 @@ def build_split(
             is_train_overlap = edge in train_edges
             is_selection_overlap = edge in selection_edges
             has_association = edge in string_edges and not is_positive
+            has_string_coverage = (
+                receptor.receptor_accession in string_mapped_accessions
+                and ligand.ligand_accession in string_mapped_accessions
+            )
             has_negative = edge in negatome
 
             same_species[i, j] = is_same_species
@@ -246,6 +267,7 @@ def build_split(
             train_overlap[i, j] = is_train_overlap
             selection_overlap[i, j] = is_selection_overlap
             association_censor[i, j] = has_association
+            string_coverage[i, j] = has_string_coverage
 
             eligible = (
                 is_same_species
@@ -260,7 +282,10 @@ def build_split(
             )
             negative_conflict[i, j] = conflict
             operational_negative[i, j] = (
-                eligible and not is_positive and not has_association
+                eligible
+                and has_string_coverage
+                and not is_positive
+                and not has_association
             )
             verified_negative[i, j] = (
                 operational_negative[i, j] and has_negative and not conflict
@@ -274,6 +299,8 @@ def build_split(
                 statuses.append("negatome_negative_evidence")
             if has_association:
                 statuses.append("string_association_censor")
+            if not has_string_coverage:
+                statuses.append("string_mapping_incomplete")
             if is_train_overlap:
                 statuses.append("train_edge_overlap")
             if is_selection_overlap:
@@ -289,8 +316,8 @@ def build_split(
             elif operational_negative[i, j]:
                 label_state = "operational_negative"
             elif candidate[i, j]:
-                label_state = "association_censored_unlabelled"
-                statuses.append("association_censored_unlabelled")
+                label_state = "unjudged_candidate"
+                statuses.append("unjudged_candidate")
             else:
                 label_state = "ineligible"
             ledger.append(
@@ -314,6 +341,7 @@ def build_split(
                     "train_overlap": int(train_overlap[i, j]),
                     "selection_overlap": int(selection_overlap[i, j]),
                     "string_association_censor": int(association_censor[i, j]),
+                    "string_mapping_coverage": int(string_coverage[i, j]),
                     "evidence_conflict": int(negative_conflict[i, j]),
                     "negatome_evidence": json.dumps(
                         negatome.get(edge, []), sort_keys=True
@@ -350,6 +378,7 @@ def build_split(
         candidate_mask=candidate,
         observed_label_mask=observed_label,
         association_censor_mask=association_censor,
+        string_coverage_mask=string_coverage,
         train_overlap_mask=train_overlap,
         selection_overlap_mask=selection_overlap,
         same_species_mask=same_species,
@@ -367,7 +396,7 @@ def build_split(
             "operational_negative", "verified_negative", "retrieval_candidate",
             "observed_label_evaluable", "same_organism", "train_overlap",
             "selection_overlap", "string_association_censor",
-            "evidence_conflict", "negatome_evidence",
+            "string_mapping_coverage", "evidence_conflict", "negatome_evidence",
         ],
     )
 
@@ -415,6 +444,8 @@ def build_split(
             if observed_label.any() else None
         ),
         "string_association_censored_cells": int(association_censor.sum()),
+        "string_covered_candidate_cells": int((candidate & string_coverage).sum()),
+        "string_uncovered_candidate_cells": int((candidate & ~string_coverage).sum()),
         "train_overlap_cells": int(train_overlap.sum()),
         "selection_overlap_cells": int(selection_overlap.sum()),
         "cross_species_cells": int((~same_species & ~missing_taxonomy).sum()),
@@ -451,18 +482,32 @@ def main() -> None:
     )
     parser.add_argument(
         "--uniprot-metadata",
-        default="results/ppi_database_calibration/uniprot_metadata.tsv",
+        default="results/ppi_database_calibration_string_any_v3/uniprot_metadata.tsv",
     )
     parser.add_argument(
         "--string-edges",
-        default="results/ppi_database_calibration/string_edges.tsv",
+        default="results/ppi_database_calibration_string_any_v3/string_edges.tsv",
+    )
+    parser.add_argument(
+        "--string-mapping",
+        default=(
+            "results/ppi_database_calibration_string_any_v3/"
+            "string_mapped_accessions.tsv"
+        ),
+    )
+    parser.add_argument(
+        "--string-provenance",
+        default=(
+            "results/ppi_database_calibration_string_any_v3/"
+            "source_provenance.json"
+        ),
     )
     parser.add_argument(
         "--negatome",
         default="data/external_binary_ppi/upstream/negatome2_manual_stringent_20191101.txt",
     )
-    parser.add_argument("--string-minimum-score", type=float, default=0.7)
-    parser.add_argument("--output-dir", default="results/ppi_label_protocol_v3")
+    parser.add_argument("--string-minimum-score", type=float, default=0.0)
+    parser.add_argument("--output-dir", default="results/ppi_label_protocol_v3_1")
     args = parser.parse_args()
 
     paths = {
@@ -471,6 +516,8 @@ def main() -> None:
         "test": ROOT / args.test_csv,
         "uniprot_metadata": ROOT / args.uniprot_metadata,
         "string_edges": ROOT / args.string_edges,
+        "string_mapping": ROOT / args.string_mapping,
+        "string_provenance": ROOT / args.string_provenance,
         "negatome": ROOT / args.negatome,
     }
     for name, path in paths.items():
@@ -484,6 +531,7 @@ def main() -> None:
     test_records = read_pairs(paths["test"])
     metadata = read_metadata(paths["uniprot_metadata"])
     string_edges = read_string_associations(paths["string_edges"], args.string_minimum_score)
+    string_mapped_accessions = read_string_mapping(paths["string_mapping"])
     negatome = read_negatome(paths["negatome"])
     train_known = edge_set(train_records)
     val_known = edge_set(val_records)
@@ -496,6 +544,7 @@ def main() -> None:
         train_edges=train_known,
         selection_edges=set(),
         string_edges=string_edges,
+        string_mapped_accessions=string_mapped_accessions,
         negatome=negatome,
         output_dir=output_dir,
     )
@@ -508,6 +557,7 @@ def main() -> None:
         # Exact validation edges are unavailable for an untouched final test.
         selection_edges=val_known,
         string_edges=string_edges,
+        string_mapped_accessions=string_mapped_accessions,
         negatome=negatome,
         output_dir=output_dir,
     )
@@ -532,9 +582,10 @@ def main() -> None:
             ),
             "operational_negative": (
                 "Eligible same-species pair absent from the split's PINDER "
-                "structural-positive edges and from STRING associations at the "
-                "prespecified score threshold. This is an assumed benchmark "
-                "negative, not proof of non-interaction."
+                "structural-positive edges and from the full STRING API network "
+                "query (required_score=0; current API floor 0.15). Both accessions "
+                "must have successful STRING mappings. This is an assumed "
+                "benchmark negative, not proof of non-interaction."
             ),
             "verified_negative_evidence": (
                 "Negatome 2.0 manual-stringent exact canonical UniProt pair; it "
@@ -542,13 +593,14 @@ def main() -> None:
                 "has no structural, STRING, train, or validation conflict."
             ),
             "unknown": (
-                "Eligible non-positive pairs with prespecified STRING association "
-                "evidence; retained as ranking competitors but excluded from the "
-                "operational binary endpoint."
+                "Eligible non-positive pairs with any returned STRING association "
+                "or incomplete STRING mapping coverage; retained as ranking "
+                "competitors but excluded from the operational binary endpoint."
             ),
             "string": (
-                "High-confidence STRING association is censoring evidence only, "
-                "not proof of direct physical interaction."
+                "Any association returned by the frozen STRING required_score=0 "
+                "query is censoring evidence only, not proof of direct physical "
+                "interaction."
             ),
             "cross_species": (
                 "Excluded from the primary within-species retrieval task; known "
@@ -570,6 +622,7 @@ def main() -> None:
         "string_minimum_score": args.string_minimum_score,
         "metadata_accessions": len(metadata),
         "string_association_edges": len(string_edges),
+        "string_mapped_accessions": len(string_mapped_accessions),
         "negatome_edges": len(negatome),
         "splits": [val_summary, test_summary],
         "interpretation": {

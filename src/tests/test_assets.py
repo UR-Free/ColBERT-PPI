@@ -1,11 +1,8 @@
-import importlib.util
 from pathlib import Path
 import zipfile
 import pytest
 
-spec = importlib.util.spec_from_file_location('download_assets', Path(__file__).parents[1] / 'download_assets.py')
-assets = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(assets)
+from colbert_ppi.commands import download as assets
 
 
 def test_rejects_path_escape_before_extracting_any_files(tmp_path):
@@ -29,3 +26,25 @@ def test_verified_archive_layout_and_no_overwrite(tmp_path):
     assert (destination / 'data/example.txt').read_text() == 'hello'
     with pytest.raises(FileExistsError):
         assets.extract(archive, destination)
+
+
+def test_benchmark_prefix_is_removed(tmp_path):
+    archive = tmp_path / 'benchmark.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('data/', '')
+        bundle.writestr('data/ppi/labels.txt', 'labels')
+    destination = tmp_path / 'data/benchmarks'
+    assets.extract(archive, destination, strip_prefix='data')
+    assert (destination / 'ppi/labels.txt').read_text() == 'labels'
+    assert not (destination / 'data').exists()
+
+
+def test_wrong_benchmark_prefix_is_rejected_before_writes(tmp_path):
+    archive = tmp_path / 'bad-prefix.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('data/ppi/labels.txt', 'labels')
+        bundle.writestr('unexpected/file', 'bad')
+    destination = tmp_path / 'out'
+    with pytest.raises(ValueError):
+        assets.extract(archive, destination, strip_prefix='data')
+    assert not destination.exists()

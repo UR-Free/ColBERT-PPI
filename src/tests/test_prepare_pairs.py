@@ -1,11 +1,8 @@
-import importlib.util
 import json
 from pathlib import Path
 import pytest
 
-spec = importlib.util.spec_from_file_location('prepare_pairs', Path(__file__).parents[1] / 'prepare_pairs.py')
-prepare_pairs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(prepare_pairs)
+from colbert_ppi.commands import prepare as prepare_pairs
 
 
 def test_manifest_paths_are_relative_and_repeated_structures_are_cached(tmp_path, monkeypatch):

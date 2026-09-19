@@ -1,0 +1,14 @@
+{
+  "device": "cuda:0",
+  "saprot_dir": "data/weights/backbones/SaProt_650M_PDB",
+  "checkpoint": "data/weights/ppi/ppi_full/weights.pt",
+  "input": "data/examples/ppi/predict.json",
+  "reference_bank": "data/weights/ppi/ppi_full/reference_bank.npz",
+  "training": {
+    "data_dir": "data/examples/ppi",
+    "epochs": 1,
+    "batch_size": 2,
+    "learning_rate": 0.0001,
+    "seed": 42
+  }
+}

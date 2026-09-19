@@ -1,0 +1,16 @@
+{
+  "device": "cuda:0",
+  "saprot_dir": "data/weights/backbones/SaProt_650M_PDB",
+  "checkpoint": "data/weights/pri/pri_ppi_100_seed42/weights.pt",
+  "input": "data/examples/pri/predict.json",
+  "ernie_code": "data/weights/backbones/ERNIE-RNA/code",
+  "ernie_checkpoint": "data/weights/backbones/ERNIE-RNA/ERNIE-RNA_pretrain.pt",
+  "training": {
+    "data_dir": "data/examples/pri",
+    "epochs": 1,
+    "batch_size": 2,
+    "learning_rate": 2e-05,
+    "seed": 42,
+    "protein_init": "data/weights/ppi/ppi_full/weights.pt"
+  }
+}

@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
-from .training_data import collate
+from .data import collate
 from .scoring import score_protein_pair, score_protein_rna
 
 

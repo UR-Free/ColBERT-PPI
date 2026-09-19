@@ -6,9 +6,9 @@ import random
 import time
 import numpy as np
 import torch
-from .training_data import read_pairs, collate
-from .neural.losses import sampled_contact_losses
-from .model_loading import (
+from .data import read_pairs, collate
+from .losses import sampled_contact_losses
+from .models.loading import (
     build_model,
     component_state,
     restore_components,
@@ -29,8 +29,8 @@ def train(args):
     dataset = Path(args.data_dir)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    training = read_pairs(dataset / f"{args.task}_train.json")
-    validation = read_pairs(dataset / f"{args.task}_validation.json")
+    training = read_pairs(dataset / "train.json")
+    validation = read_pairs(dataset / "validation.json")
     model = build_model(
         args.task, args.saprot_dir, args.ernie_checkpoint, args.ernie_code
     ).to(device)
@@ -121,7 +121,7 @@ def train(args):
         raise RuntimeError("Training did not update the SaProt LoRA parameters")
     selected = restore_components(model, output / "best.pt")
     # Test records are first read after selection and are never used to choose an epoch.
-    test = read_pairs(dataset / f"{args.task}_test.json")
+    test = read_pairs(dataset / "test.json")
     banks = dict(np.load(output / "reference_bank.npz")) if args.task == "ppi" else None
     encoded = encode_pairs(model, test, args.task, device)
     metrics, scores, truth = retrieval_metrics(encoded, test, args.task, banks)

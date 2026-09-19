@@ -1,6 +1,6 @@
 import json
 import pytest
-from colbert_ppi.input_validation import read_inference_pairs
+from colbert_ppi.data import read_inference_pairs
 
 
 def test_generated_pair_ids_are_distinct(tmp_path):

@@ -1,14 +1,7 @@
 weights/*
 !weights/README.md
-ppi/
-pri/
-y2h/
-localisation/
-source_data/
-figure_templates/
-validation_reports/
+!weights/manifest.json
 benchmarks/
-predictions/
-runs/
+results/
 user/
 asset_metadata/

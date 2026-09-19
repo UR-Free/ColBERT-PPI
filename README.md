@@ -3,123 +3,121 @@
 Retrieve protein partners with reusable residue-level representations.
 Supports protein–protein (PPI) and protein–RNA (PRI) matching.
 
-[Quick start](#quick-start) · [Prediction](#predict-protein-partners) · [Evaluation](#evaluate) · [For agent use](#for-agent-use)
+[![Fig. 1 — ColBERT-PPI](data/paper/Fig1.png)](data/paper/Fig1.svg)
 
-[![Fig. 1 — ColBERT-PPI architecture, training and applications](data/figures/Fig1.png)](data/figures/Fig1.svg)
-
-*Fig. 1. Contact-supervised residue representations support partner retrieval
-and local interface evidence. Click the figure for the vector version.*
+*Contact-supervised representations for partner retrieval and interface evidence.
+Click the figure for the vector version.*
 
 ## Quick start
 
-**Linux · Python 3.10 · CUDA GPU**
+Linux, Conda and a CUDA GPU are required for model inference.
 
 ```bash
 git clone https://github.com/UR-Free/ColBERT-PPI.git
 cd ColBERT-PPI
-python3.10 -m venv src/.venv
-source src/.venv/bin/activate
-python -m pip install -e './src[ppi]'
-python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
-python src/download_assets.py ppi
+conda create -n colbert-ppi python=3.10 -y
+conda activate colbert-ppi
+pip install -e '.[ppi]'
+colbert-ppi download ppi
 ```
-
-## Predict protein partners
-
-Released weights: **ColBERT-PPI epoch 69** and **PRI 100% PPI, seed 42, epoch 32**
-(best validation AUPRC). Each task download contains one model.
 
 Download [SaProt_650M_PDB](https://huggingface.co/westlake-repl/SaProt_650M_PDB)
-into `data/weights/backbones/SaProt_650M_PDB/`, including `pytorch_model.bin`,
-`config.json` and the tokenizer files. Then:
+into `data/weights/backbones/SaProt_650M_PDB/`, including its configuration,
+weights and tokenizer files. Run the bundled protein-pair example:
 
 ```bash
-bash src/launchers/PPI_inference.sh  # defaults to cuda:0
-# Choose a physical GPU when needed:
-CUDA_VISIBLE_DEVICES=1 bash src/launchers/PPI_inference.sh
+colbert-ppi predict
 ```
 
-Output: `data/predictions/ppi.json`. Higher scores rank partners more strongly;
-**scores are not probabilities**. For your own proteins, follow the
-[single-chain PDB input example](data/README.md#custom-ppi-inputs).
-Paths and devices can be set in [config/](config) or through environment variables.
+The default device is `cuda:0`; use `CUDA_VISIBLE_DEVICES=1` to select another
+GPU. Results are saved to `data/results/ppi/predictions.json`. Higher scores
+indicate stronger matches; scores are not probabilities.
+
+For your own proteins, follow the [PDB input example](data/README.md#custom-ppi-inputs), then:
+
+```bash
+colbert-ppi predict --input data/user/pairs.json
+```
 
 ## Evaluate
 
 ```bash
-python -m pip install -r requirements.txt
-python src/download_assets.py benchmarks
-python src/reproduce_results.py                            # cached predictions
-bash src/launchers/PPI_inference.sh --benchmark --split test # neural evaluation
+colbert-ppi download benchmarks
+colbert-ppi evaluate --task ppi --split test
 ```
 
-The second evaluation command also requires the PPI weights and SaProt above.
-Results go to `data/validation_reports/` and `data/benchmarks/ppi/`.
-[Release assets](https://github.com/UR-Free/ColBERT-PPI/releases/tag/v0.2.1-preprint)
-are verified against [SHA-256 checksums](config/assets.json).
+This runs the model on GPU and saves results under `data/results/ppi/evaluation/`.
+To recalculate paper metrics from the supplied predictions instead:
+
+```bash
+pip install -e '.[analysis]'
+colbert-ppi reproduce
+```
+
+Only two checkpoints are distributed: **ColBERT-PPI epoch 69** and **PRI with
+100% PPI initialization, seed 42, epoch 32**. The PRI checkpoint has the best
+validation AUPRC among the three 100% PPI seeds. Downloads verify the
+[asset checksums and model identities](data/weights/manifest.json).
 
 <details>
-<summary>Training, protein–RNA and manual downloads</summary>
+<summary>Protein–RNA, training and manual downloads</summary>
+
+PRI additionally uses the official [ERNIE-RNA source and weights](https://github.com/Bruce-ywj/ERNIE-RNA).
+Set their paths in `config/pri.json`, then:
 
 ```bash
-bash src/launchers/PPI_train.sh  # ten-pair training demo, one epoch
+pip install 'pip<24.1'
+pip install -e '.[pri]'
+colbert-ppi download pri
+colbert-ppi predict --task pri
 ```
 
-Full original training data and its preprocessing are not included.
-Demo metrics must not be presented as manuscript benchmark results.
+The older fairseq dependency requires Python 3.10 and may need a C/C++ compiler.
+PRI examples are tokenized; raw RNA preprocessing is not included.
 
-PRI additionally needs the official [ERNIE-RNA source and weights](https://github.com/Bruce-ywj/ERNIE-RNA).
-Use Python 3.10 and set the backbone paths in `config/PRI_inference.env`:
+`colbert-ppi train --task ppi` (or `pri`) runs a one-epoch demo on ten pairs.
+Full original training data and its preprocessing are not included; demo
+metrics are not manuscript benchmark results.
 
-```bash
-python -m pip install 'pip<24.1'
-python -m pip install -r config/requirements-pri.txt
-python src/download_assets.py pri
-bash src/launchers/PRI_inference.sh  # defaults to cuda:0
-```
-
-The legacy fairseq dependency may require a C/C++ compiler. The supplied PRI
-example is tokenized; raw RNA preprocessing is not included. Run
-`bash src/launchers/PRI_train.sh` for its training demo.
-
-For manual downloads, pass `--archive /path/to/downloaded.zip` to the asset
-command. It verifies the hash before extraction and refuses overwrites.
-During private staging, obtain assets with authenticated `gh release download
-v0.2.1-preprint --repo UR-Free/ColBERT-PPI`; public downloads require a published
-public release. See [data formats and provenance](data/README.md).
+For an existing release ZIP, use `colbert-ppi download ppi --archive /path/to/file.zip`.
+Extraction refuses to overwrite existing files. While the repository is private,
+downloading requires an authorized GitHub account (`gh auth login`) or a manually
+downloaded archive.
 
 </details>
 
-**Licence:** [MIT](LICENSE); third-party models and data retain upstream terms.
-**Citation:** [CITATION.cff](config/CITATION.cff), with the release tag or commit.
-**Support:** [GitHub issues](https://github.com/UR-Free/ColBERT-PPI/issues).
+## Repository layout
+
+```text
+README.md          Start here
+LICENSE            MIT
+pyproject.toml     Installation and dependencies
+config/            ppi.json and pri.json: model paths and run settings
+src/               colbert_ppi/ implementation and tests/
+data/              examples/, weights/, benchmarks/, paper/, results/
+```
+
+In `src/colbert_ppi/`, `models/` defines the encoders, `inference.py` and
+`scoring.py` perform prediction, and `training.py` and `losses.py` handle
+training. `cli.py` exposes the commands in `commands/`. Set defaults in
+`config/`; command-line options override them. Use `colbert-ppi --help`
+or append `--dry-run` to inspect a command before running it.
+
+[Data formats](data/README.md) · [MIT license](LICENSE) ·
+[Citation](data/paper/CITATION.cff) · [Issues](https://github.com/UR-Free/ColBERT-PPI/issues)
 
 ## For agent use
 
-Use these instructions when helping a reader install or evaluate this repository:
-
-1. Work from the repository root in `src/.venv`. Check the CUDA driver and
-   GPU availability first. Inference, training and neural evaluation default
-   to `cuda:0`; select an available device with `CUDA_VISIBLE_DEVICES`.
-   If CUDA is unavailable, report the issue instead of silently using CPU.
-2. Install `./src[ppi]` for PPI, `./src[analysis]` for cached metrics, or
-   `config/requirements-pri.txt` for PRI. As a lightweight scoring check, run
-   `src/run_example.py`; require `PASS`, score near `-0.01595231` and matrix
-   errors below `2e-6`. Then run the requested neural workflow on GPU.
-3. Fetch task assets using `src/download_assets.py`. Check
-   `config/assets.json`; never substitute a different checkpoint or reference
-   bank. Obtain SaProt/ERNIE-RNA from upstream, using the configured paths.
-4. Distinguish cached reproduction (`src/reproduce_results.py`) from neural
-   evaluation (`src/launchers/PPI_inference.sh --benchmark --split test`).
-   Keep test masks and scoring fixed; do not tune on test data or relabel
-   unjudged pairs as negatives. Do not start training as an installation check.
-5. Inspect launch commands with `--dry-run`. Run lengthy evaluation detached
-   from the agent session and record its command, device, log and output path.
-6. Report commands, package versions, asset/checkpoint identities, output
-   paths and pass/fail evidence. Say which checks were actually run; cached
-   scoring success is not evidence of successful neural inference.
-
-Development: `pip install -e './src[dev]'` then `python -m pytest -q src/tests`.
-[Local validation](src/tests/validation.json) records the tests and executed PPI/PRI
-smoke checks; full retraining and clean neural installation were not tested.
-A [CI template](config/ci.yml) is supplied but not enabled.
+- Work from the repository root in the `colbert-ppi` Conda environment.
+  Install `.[ppi]`, `.[pri]` or `.[analysis]` for the requested workflow.
+- Check CUDA availability and select a free GPU. Model workflows default to
+  GPU; report CUDA problems rather than silently switching to CPU.
+- Fetch assets with `colbert-ppi download`; keep checkpoints and reference
+  banks matched to `data/weights/manifest.json`. Configure backbone paths in `config/`.
+- Run `colbert-ppi example` for a lightweight scoring check (expect `PASS`),
+  then `colbert-ppi predict` to verify actual GPU inference. Do not start training
+  as an installation check. Development checks: `pip install -e '.[dev]'` and `pytest -q`.
+- Distinguish `reproduce` (saved predictions) from `evaluate` (model inference).
+  Keep test masks and scoring fixed; do not tune on test data or treat unjudged pairs as negatives.
+- Run lengthy jobs detached. Report the command, environment, GPU, model,
+  output paths and checks actually completed. Generated files belong in `data/results/`.

@@ -7,9 +7,9 @@
 
 Each task archive contains exactly one checkpoint. The PRI model is selected
 by the highest final-score validation AUPRC among the three 100% PPI seeds;
-see [selection evidence](../../config/released_models.json).
+see [selection evidence](manifest.json).
 
-Run `python src/download_assets.py ppi` or `python src/download_assets.py pri`
+Run `colbert-ppi download ppi` or `colbert-ppi download pri`
 from the repository root. The default inference configurations already point
 to these models. Upstream SaProt and, for PRI, ERNIE-RNA are obtained separately.
 See the [README](../../README.md#predict-protein-partners).

@@ -1,0 +1,57 @@
+{
+  "ppi": {
+    "filename": "ColBERT-PPI-ppi-v0.2.1.zip",
+    "sha256": "aec5425696142a22e17ce3c3ca11836b9222b9268864295c6d182712a8aad266",
+    "size_bytes": 76257329,
+    "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.1-preprint/ColBERT-PPI-ppi-v0.2.1.zip",
+    "model": {
+      "model_id": "ppi_full",
+      "epoch": 69,
+      "reference_bank_required": true
+    }
+  },
+  "pri": {
+    "filename": "ColBERT-PPI-pri-v0.2.1.zip",
+    "sha256": "401ce8890beb62d40a60a5cf6c6067b45ec737a554ac1f31dbf4cc2deda21bd3",
+    "size_bytes": 97262856,
+    "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.1-preprint/ColBERT-PPI-pri-v0.2.1.zip",
+    "model": {
+      "model_id": "pri_ppi_100_seed42",
+      "ppi_initialization_percent": 100,
+      "seed": 42,
+      "epoch": 32,
+      "selection_metric": "final_score_validation_auprc",
+      "selection_split": "validation",
+      "value": 0.0121233379091655,
+      "candidates": [
+        {
+          "model_id": "pri_ppi_100_seed42",
+          "seed": 42,
+          "epoch": 32,
+          "final_score_validation_auprc": 0.0121233379091655
+        },
+        {
+          "model_id": "pri_ppi_100_seed123",
+          "seed": 123,
+          "epoch": 11,
+          "final_score_validation_auprc": 0.0099330587992219
+        },
+        {
+          "model_id": "pri_ppi_100_seed2026",
+          "seed": 2026,
+          "epoch": 31,
+          "final_score_validation_auprc": 0.0095920393563807
+        }
+      ],
+      "source_table": "Fig5_selected_checkpoints.csv",
+      "source_sha256": "3d01aa24e5a193c60badb50498d23043c2be5930c1602886808e715276d41969",
+      "test_data_used_for_selection": false
+    }
+  },
+  "benchmarks": {
+    "filename": "ColBERT-PPI-benchmarks-v0.2.0.zip",
+    "sha256": "6afde57feed2e35e9c951195b5045c635db01100f0bc99a168bb6d6ea2e7f861",
+    "size_bytes": 115518560,
+    "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.0-preprint/ColBERT-PPI-benchmarks-v0.2.0.zip"
+  }
+}

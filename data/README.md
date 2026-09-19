@@ -1,15 +1,14 @@
 # Data and model files
 
-| Directory | Contents | Acquisition |
-|---|---|---|
-| `examples/` | Frozen-vector CPU example and expected matrices | Included |
-| `examples/training/` | 10 training and separate 2-pair validation/test examples per task | Included |
-| `training/` | Source protein accession lists | Included |
-| `weights/ppi/`, `weights/pri/` | One selected model per task | `python src/download_assets.py ppi` / `pri` |
-| `ppi/`, `pri/`, `y2h/` | Prepared full benchmark tokens, labels and entity mappings | `benchmarks` asset |
-| `source_data/`, `localisation/` | Frozen scores, contact labels and numerical figure evidence | `benchmarks` asset |
-| `figure_templates/` | Final editable SVG compositions | `benchmarks` asset |
-| `validation_reports/` | Checkpoint-selection and numerical reproduction outputs | `benchmarks` asset |
+| Directory | Contents |
+|---|---|
+| `examples/ppi/`, `examples/pri/` | Small training, validation, test and prediction examples |
+| `examples/scoring/` | Frozen vectors and expected scoring matrices |
+| `weights/` | Downloaded model components, backbones and asset manifest |
+| `benchmarks/` | Downloaded benchmark inputs, frozen predictions and figure evidence |
+| `paper/` | Fig. 1 and citation metadata |
+| `results/` | Generated predictions, evaluation reports and training outputs |
+| `user/` | Your prepared inputs |
 
 Download commands run from the repository root. Frozen backbone weights are
 not included. Each learned `weights.pt` stores `model`, `epoch` and `model_id`;
@@ -19,7 +18,7 @@ Only two neural checkpoints are distributed: ColBERT-PPI epoch 69 (with its
 required reference bank), and the 100% PPI-initialized PRI model, seed 42,
 epoch 32. The latter has the highest final-score validation AUPRC among the
 three 100% PPI multi-vector seeds. Selection evidence is recorded in
-[released_models.json](../config/released_models.json). The benchmark asset
+[asset manifest](weights/manifest.json). The benchmark asset
 retains frozen predictions for paper comparisons; their ablation and other
 seed weights are not part of the model downloads.
 
@@ -83,11 +82,11 @@ coordinate frame. Amino-acid FASTA alone is not sufficient for the full
 structure-aware model.
 
 ```bash
-python src/prepare_pairs.py --manifest pairs.csv \
+colbert-ppi prepare --manifest pairs.csv \
   --saprot-dir data/weights/backbones/SaProt_650M_PDB \
   --foldseek-bin foldseek --output data/user/pairs.json
-INPUT=data/user/pairs.json OUTPUT=data/predictions/my_pairs.json \
-  bash src/launchers/PPI_inference.sh
+colbert-ppi predict --input data/user/pairs.json \
+  --output data/results/my_pairs.json
 ```
 
 Unknown tokens, ambiguous chains or more than 1,024 represented residues are

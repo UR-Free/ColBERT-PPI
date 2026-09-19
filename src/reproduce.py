@@ -31,3 +31,9 @@ def run(args):
     }
     (args.output / "reproduction.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    from colbert_ppi.options import run_script
+
+    run_script("reproduce", run)

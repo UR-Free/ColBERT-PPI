@@ -82,3 +82,9 @@ def run(args):
             destination = destination / "data/benchmarks"
         extract(archive, destination, strip_prefix="data" if args.asset == "benchmarks" else None)
     print(f"Verified and extracted {spec['filename']} to {destination}")
+
+
+if __name__ == "__main__":
+    from colbert_ppi.options import run_script
+
+    run_script("download", run)

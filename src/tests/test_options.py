@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
 
-from colbert_ppi.cli import build_parser, resolve_args, main
+from colbert_ppi.options import build_parser, resolve_args, run_script
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def resolved(*argv):
-    return resolve_args(build_parser().parse_args(['--root', str(ROOT), *argv]))
+    return resolve_args(build_parser(argv[0]).parse_args(['--root', str(ROOT), *argv[1:]]))
 
 
 def test_task_defaults_and_explicit_overrides():
@@ -32,7 +32,7 @@ def test_transfer_can_be_disabled_without_losing_other_defaults():
 
 def test_dry_run_from_outside_repository(capsys, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    main(['--root', str(ROOT), 'evaluate', '--dry-run'])
+    run_script('evaluate', lambda args: None, ['--root', str(ROOT), '--dry-run'])
     settings = json.loads(capsys.readouterr().out)
     assert settings['root'] == str(ROOT)
     assert settings['device'] == 'cuda:0'

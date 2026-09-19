@@ -72,3 +72,9 @@ def run(args):
         xlabel="PPI training data (%)", ylabel="AUPRC", title="PPI initialization"
     )
     save(fig, "Fig5_Transfer_Replot")
+
+
+if __name__ == "__main__":
+    from colbert_ppi.options import run_script
+
+    run_script("plot", run)

@@ -60,3 +60,9 @@ def run(args):
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(results, indent=2))
     print(json.dumps(results, indent=2))
+
+
+if __name__ == "__main__":
+    from colbert_ppi.options import run_script
+
+    run_script("predict", run)

@@ -2,7 +2,7 @@ from pathlib import Path
 import zipfile
 import pytest
 
-from colbert_ppi.commands import download as assets
+import download as assets
 
 
 def test_rejects_path_escape_before_extracting_any_files(tmp_path):

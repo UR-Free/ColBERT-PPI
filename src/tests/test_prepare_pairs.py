@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import pytest
 
-from colbert_ppi.commands import prepare as prepare_pairs
+import prepare_pairs
 
 
 def test_manifest_paths_are_relative_and_repeated_structures_are_cached(tmp_path, monkeypatch):

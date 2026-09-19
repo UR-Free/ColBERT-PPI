@@ -57,3 +57,9 @@ def run(args):
         "scope": "cached-vector readout only; no raw-sequence inference or retraining",
     }
     print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    from colbert_ppi.options import run_script
+
+    run_script("example", run)

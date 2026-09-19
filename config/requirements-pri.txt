@@ -1,0 +1,4 @@
+-r ../requirements.txt
+fairseq==0.12.2
+hydra-core==1.0.7
+omegaconf==2.0.6

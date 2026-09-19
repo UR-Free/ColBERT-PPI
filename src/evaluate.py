@@ -226,3 +226,9 @@ def run(args):
     np.savez_compressed(output / "scores.npz", scores=scores)
     (output / "metrics.json").write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    from colbert_ppi.options import run_script
+
+    run_script("evaluate", run)

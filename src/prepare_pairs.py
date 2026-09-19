@@ -69,3 +69,9 @@ def run(args):
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         raise ValueError(f"Input preparation failed: {error}") from error
     print(f"Prepared {count} PPI pairs in {args.output}")
+
+
+if __name__ == "__main__":
+    from colbert_ppi.options import run_script
+
+    run_script("prepare", run)

@@ -82,10 +82,10 @@ coordinate frame. Amino-acid FASTA alone is not sufficient for the full
 structure-aware model.
 
 ```bash
-colbert-ppi prepare --manifest pairs.csv \
+python src/prepare_pairs.py --manifest pairs.csv \
   --saprot-dir data/weights/backbones/SaProt_650M_PDB \
   --foldseek-bin foldseek --output data/user/pairs.json
-colbert-ppi predict --input data/user/pairs.json \
+python src/predict.py --input data/user/pairs.json \
   --output data/results/my_pairs.json
 ```
 

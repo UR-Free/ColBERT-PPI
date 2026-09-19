@@ -1,9 +1,15 @@
-# Model files
+# Released weights
 
-Run `python src/download_assets.py ppi` from the repository root.
-Optional PRI components use `python src/download_assets.py pri`.
-The downloader creates `ppi/` and `pri/` beneath this directory.
+| Task | Model | Contents |
+|---|---|---|
+| PPI | ColBERT-PPI, epoch 69 | `ppi/ppi_full/weights.pt`, configuration and required reference bank |
+| PRI | 100% PPI initialization, seed 42, epoch 32 | `pri/pri_ppi_100_seed42/weights.pt` and configuration |
 
-Download SaProt separately into `backbones/SaProt_650M_PDB/`.
-PRI additionally needs ERNIE-RNA source and weights; configure their paths in
-`config/PRI_inference.env`. See [download guide](../../README.md#model-and-benchmark-downloads).
+Each task archive contains exactly one checkpoint. The PRI model is selected
+by the highest final-score validation AUPRC among the three 100% PPI seeds;
+see [selection evidence](../../config/released_models.json).
+
+Run `python src/download_assets.py ppi` or `python src/download_assets.py pri`
+from the repository root. The default inference configurations already point
+to these models. Upstream SaProt and, for PRI, ERNIE-RNA are obtained separately.
+See the [README](../../README.md#predict-protein-partners).

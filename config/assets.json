@@ -1,15 +1,15 @@
 {
   "ppi": {
-    "filename": "ColBERT-PPI-ppi-v0.2.0.zip",
-    "sha256": "a9d315681ff92a7bba7ee4c05a3d0bc749a2c50b9ce4c5ad78296d941c8a4b35",
-    "size_bytes": 213059769,
-    "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.0-preprint/ColBERT-PPI-ppi-v0.2.0.zip"
+    "filename": "ColBERT-PPI-ppi-v0.2.1.zip",
+    "sha256": "aec5425696142a22e17ce3c3ca11836b9222b9268864295c6d182712a8aad266",
+    "size_bytes": 76257329,
+    "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.1-preprint/ColBERT-PPI-ppi-v0.2.1.zip"
   },
   "pri": {
-    "filename": "ColBERT-PPI-pri-v0.2.0.zip",
-    "sha256": "78a11f5a672ff6af01d120aae1a85dab64d4c3b69f30d9395b226094417e2acc",
-    "size_bytes": 1457972601,
-    "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.0-preprint/ColBERT-PPI-pri-v0.2.0.zip"
+    "filename": "ColBERT-PPI-pri-v0.2.1.zip",
+    "sha256": "401ce8890beb62d40a60a5cf6c6067b45ec737a554ac1f31dbf4cc2deda21bd3",
+    "size_bytes": 97262856,
+    "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.1-preprint/ColBERT-PPI-pri-v0.2.1.zip"
   },
   "benchmarks": {
     "filename": "ColBERT-PPI-benchmarks-v0.2.0.zip",

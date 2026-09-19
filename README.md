@@ -26,6 +26,9 @@ python src/download_assets.py ppi
 
 ## Predict protein partners
 
+Released weights: **ColBERT-PPI epoch 69** and **PRI 100% PPI, seed 42, epoch 32**
+(best validation AUPRC). Each task download contains one model.
+
 Download [SaProt_650M_PDB](https://huggingface.co/westlake-repl/SaProt_650M_PDB)
 into `data/weights/backbones/SaProt_650M_PDB/`, including `pytorch_model.bin`,
 `config.json` and the tokenizer files. Then:
@@ -52,7 +55,7 @@ bash src/launchers/PPI_inference.sh --benchmark --split test # neural evaluation
 
 The second evaluation command also requires the PPI weights and SaProt above.
 Results go to `data/validation_reports/` and `data/benchmarks/ppi/`.
-[Release assets](https://github.com/UR-Free/ColBERT-PPI/releases/tag/v0.2.0-preprint)
+[Release assets](https://github.com/UR-Free/ColBERT-PPI/releases/tag/v0.2.1-preprint)
 are verified against [SHA-256 checksums](config/assets.json).
 
 <details>
@@ -82,7 +85,7 @@ example is tokenized; raw RNA preprocessing is not included. Run
 For manual downloads, pass `--archive /path/to/downloaded.zip` to the asset
 command. It verifies the hash before extraction and refuses overwrites.
 During private staging, obtain assets with authenticated `gh release download
-v0.2.0-preprint --repo UR-Free/ColBERT-PPI`; public downloads require a published
+v0.2.1-preprint --repo UR-Free/ColBERT-PPI`; public downloads require a published
 public release. See [data formats and provenance](data/README.md).
 
 </details>

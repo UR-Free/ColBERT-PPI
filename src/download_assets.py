@@ -49,7 +49,7 @@ def main():
         try:
             if not args.archive:
                 print(f"Downloading {spec['url']}", flush=True)
-                request = urllib.request.Request(spec["url"], headers={"User-Agent": "ColBERT-PPI/0.2.0"})
+                request = urllib.request.Request(spec["url"], headers={"User-Agent": "ColBERT-PPI/0.2.1"})
                 with urllib.request.urlopen(request, timeout=60) as response, archive.open("wb") as stream:
                     shutil.copyfileobj(response, stream)
             if sha256(archive) != spec["sha256"]:

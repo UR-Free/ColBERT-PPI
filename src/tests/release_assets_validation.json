@@ -1,0 +1,37 @@
+{
+  "ppi": {
+    "model": "ppi_full",
+    "epoch": 69,
+    "archive": {
+      "filename": "ColBERT-PPI-ppi-v0.2.1.zip",
+      "sha256": "aec5425696142a22e17ce3c3ca11836b9222b9268864295c6d182712a8aad266",
+      "size_bytes": 76257329,
+      "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.1-preprint/ColBERT-PPI-ppi-v0.2.1.zip"
+    },
+    "model_files_sha256": {
+      "config.json": "7041b68fe10ac70becf9047fe332a890dcf74ca2d69a44215bf6e72f73f594a6",
+      "reference_bank.npz": "1e732c89e6ecd9bf79b1d917668f6e702946858ed48fdf5fb91e73f23acb6979",
+      "weights.pt": "e9c62c5b2e64502e4158462efc1e9df30f8eddede5d91ff76f4a0448bba57193"
+    },
+    "single_checkpoint_archive": "PASS",
+    "matches_previous_gpu_validated_components": "PASS",
+    "download_script_extraction": "PASS"
+  },
+  "pri": {
+    "model": "pri_ppi_100_seed42",
+    "epoch": 32,
+    "archive": {
+      "filename": "ColBERT-PPI-pri-v0.2.1.zip",
+      "sha256": "401ce8890beb62d40a60a5cf6c6067b45ec737a554ac1f31dbf4cc2deda21bd3",
+      "size_bytes": 97262856,
+      "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.1-preprint/ColBERT-PPI-pri-v0.2.1.zip"
+    },
+    "model_files_sha256": {
+      "config.json": "be2a4308980d37d346ae02140d3cf3505286ee07f3a8a4415de907b068514422",
+      "weights.pt": "eb72ae8ca6a252bc6a8970541cd3e86c4e0b8aa1ef479906199257a946232564"
+    },
+    "single_checkpoint_archive": "PASS",
+    "matches_previous_gpu_validated_components": "PASS",
+    "download_script_extraction": "PASS"
+  }
+}

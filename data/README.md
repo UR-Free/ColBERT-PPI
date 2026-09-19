@@ -5,7 +5,7 @@
 | `examples/` | Frozen-vector CPU example and expected matrices | Included |
 | `examples/training/` | 10 training and separate 2-pair validation/test examples per task | Included |
 | `training/` | Source protein accession lists | Included |
-| `weights/ppi/`, `weights/pri/` | Selected learned components and model indexes | `python src/download_assets.py ppi` / `pri` |
+| `weights/ppi/`, `weights/pri/` | One selected model per task | `python src/download_assets.py ppi` / `pri` |
 | `ppi/`, `pri/`, `y2h/` | Prepared full benchmark tokens, labels and entity mappings | `benchmarks` asset |
 | `source_data/`, `localisation/` | Frozen scores, contact labels and numerical figure evidence | `benchmarks` asset |
 | `figure_templates/` | Final editable SVG compositions | `benchmarks` asset |
@@ -14,6 +14,14 @@
 Download commands run from the repository root. Frozen backbone weights are
 not included. Each learned `weights.pt` stores `model`, `epoch` and `model_id`;
 keep it with its `config.json` and reference bank, where applicable.
+
+Only two neural checkpoints are distributed: ColBERT-PPI epoch 69 (with its
+required reference bank), and the 100% PPI-initialized PRI model, seed 42,
+epoch 32. The latter has the highest final-score validation AUPRC among the
+three 100% PPI multi-vector seeds. Selection evidence is recorded in
+[released_models.json](../config/released_models.json). The benchmark asset
+retains frozen predictions for paper comparisons; their ablation and other
+seed weights are not part of the model downloads.
 
 ## Input and label conventions
 

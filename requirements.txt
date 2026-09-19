@@ -1,0 +1,2 @@
+# PPI inference/training and numerical reproduction. PRI is optional.
+-e .[ppi,analysis]

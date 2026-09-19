@@ -1,9 +1,9 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the associated ColBERT-PPI article."
+message: "Please cite this software and the associated preprint when available. Include the release tag or commit used."
 title: "ColBERT-PPI"
 type: software
-version: 0.1.0
-date-released: 2026-07-31
+version: 0.2.0
 repository-code: "https://github.com/UR-Free/ColBERT-PPI"
+url: "https://github.com/UR-Free/ColBERT-PPI"
 authors:
   - name: "ColBERT-PPI Authors"

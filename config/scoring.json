@@ -1,0 +1,15 @@
+{
+  "PPI": {
+    "alpha": 1,
+    "tau": 0.03,
+    "full_epoch": 69,
+    "sequence_epoch": 50,
+    "single_epoch": 74
+  },
+  "PRI": {
+    "alpha": 0,
+    "tau": 0.001
+  },
+  "localisation": "raw cosine, two-role mean, max over supported partner residues",
+  "single_vector": "original native pooled score"
+}

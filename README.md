@@ -1,208 +1,201 @@
 # ColBERT-PPI
 
-Structure-aware, residue-explicit protein-pair modelling with SaProt and late
-interaction.
+Protein partner retrieval with reusable residue-level representations. ColBERT-PPI compares proteins through multi-vector matching and supports adaptation to protein–RNA retrieval.
 
-[Private repository](https://github.com/UR-Free/ColBERT-PPI) ·
-[Data format](docs/DATA_FORMAT.md) ·
-[Development decisions](docs/DEVELOPMENT_DECISIONS.md) ·
-[Release audit](docs/RELEASE_AUDIT.md)
-
-## Installation
-
-Python 3.10 or newer and a CUDA-capable PyTorch installation are recommended.
+## Quick start — CPU, no model download
 
 ```bash
 git clone https://github.com/UR-Free/ColBERT-PPI.git
 cd ColBERT-PPI
-
-python -m venv .venv
+python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e .
+OPENBLAS_NUM_THREADS=1 python src/run_example.py
 ```
 
-SaProt weights are not redistributed. Download the required checkpoint under
-its original licence and set `saprot_dir` in the experiment configuration.
+Expected output includes `"status": "PASS"` and maximum matrix errors below
+`2e-6` and a score near `-0.01595231`. This runs a real cached residue-vector example; it verifies scoring
+without neural encoding or retraining. Linux and Python 3.10 are the reference
+neural environment. The core CPU example also supports Python 3.12.
 
-## Prepare local data
-
-No biological records are bundled. Begin with one manifest per split. Each row
-identifies a protein pair and two single-chain PDB files:
-
-```csv
-protein_a,protein_b,structure_a,structure_b
-complex01_A,complex01_B,structures/complex01_A.pdb,structures/complex01_B.pdb
-complex02_A,complex02_B,structures/complex02_A.pdb,structures/complex02_B.pdb
-```
-
-Relative PDB paths are resolved from the manifest directory. The two structures
-in each row must be extracted from the same complex coordinate frame without
-independent rotation or translation; otherwise their cross-chain contact
-distances are invalid. Each PDB must contain exactly one recognized protein
-chain.
-
-Install Foldseek and prepare a local SaProt checkpoint/tokenizer, then generate
-the training artifacts:
+## Predict with the released PPI model
 
 ```bash
-colbert-ppi-prepare-data \
-  --manifest manifests/train.csv \
-  --output-dir data/processed \
-  --prefix train \
-  --saprot-dir models/SaProt_650M_PDB \
-  --foldseek-bin foldseek \
-  --positive-threshold 8 \
-  --negative-threshold 12 \
-  --max-negatives-per-pair 2048
+python -m pip install -e '.[ppi]'
+python scripts/download_assets.py ppi
 ```
 
-Run the same command for validation and test manifests with `--prefix val` and
-`--prefix test`. For each prefix, the command writes:
-
-- `<prefix>_pairs.csv`;
-- `<prefix>_saprot_inputs.pt`;
-- `<prefix>_cb.npz`;
-- `<prefix>_contacts.pt`;
-- `<prefix>_summary.json`.
-
-The default contact definition is Cβ distance `<8 Å` for positives and `>12 Å`
-for negatives. Glycine uses Cα. Foldseek-derived 3Di and PDB residue sequences
-must agree exactly; preparation stops on a mismatch instead of silently
-misaligning contact labels.
-
-Copy the example configuration and point it to the generated files:
+Download the upstream [SaProt_650M_PDB](https://huggingface.co/westlake-repl/SaProt_650M_PDB)
+Hugging Face model files into `data/weights/backbones/SaProt_650M_PDB/`.
+The directory must contain `pytorch_model.bin`, `config.json`, `vocab.txt`,
+`tokenizer_config.json`, and `special_tokens_map.json`. A standalone `.pt`
+file is not a substitute for this directory. Then run:
 
 ```bash
-cp configs/contact_only_example.json configs/local.json
+DEVICE=cpu bash PPI_inference.sh
+# For CUDA:
+DEVICE=cuda:0 bash PPI_inference.sh
 ```
 
-For example, the training fields become:
+Predictions are written to `data/predictions/ppi.json` as pair IDs and scores.
+Higher scores rank candidate partners; scores are **not probabilities** and
+no universal interaction threshold is supplied. The checkpoint and its
+reference bank must stay together.
 
-```json
-{
-  "pinder_train_csv": "data/processed/train_pairs.csv",
-  "pinder_train_saprot_inputs": "data/processed/train_saprot_inputs.pt",
-  "pinder_train_cb": "data/processed/train_cb.npz",
-  "pinder_train_contact_map": "data/processed/train_contacts.pt"
-}
-```
+To score your own proteins, follow [PDB input preparation](docs/INPUTS.md).
+See [model files and manual downloads](docs/WEIGHTS.md), the
+[model card](MODEL_CARD.md), and [environment troubleshooting](docs/ENVIRONMENT.md).
+Large assets are hosted in the [preprint release](https://github.com/UR-Free/ColBERT-PPI/releases/tag/v0.2.0-preprint);
+the downloader verifies their SHA-256 hashes from `assets.json`.
 
-Apply the corresponding `val_*` and `test_*` paths in `configs/local.json`.
-Keep all generated artifacts outside version control. The serialized schemas
-are documented in [docs/DATA_FORMAT.md](docs/DATA_FORMAT.md).
+## Optional protein–RNA (PRI) workflow
 
-For PINDER-style splits, build the evidence-aware validation/test masks from
-the split tables, UniProt organism metadata, STRING association evidence and
-Negatome manual-stringent evidence before training. The exact inputs and CLI
-are documented in
-[docs/PPI_EVALUATION_LABEL_PROTOCOL_V2.md](docs/PPI_EVALUATION_LABEL_PROTOCOL_V2.md).
-For a non-PINDER dataset, provide an equivalent order-checked evidence NPZ;
-absence from an interaction database must not be converted into a negative.
-
-## Train
-
-After preparing the data and editing `configs/local.json`, start a single-GPU
-run:
+PRI additionally needs the upstream [ERNIE-RNA source and pretrained weights](https://github.com/Bruce-ywj/ERNIE-RNA),
+and a Python 3.10 environment with its legacy dependencies:
 
 ```bash
-colbert-ppi-train --config configs/local.json --gpu 0
+python -m pip install 'pip<24.1'
+python -m pip install -r requirements-pri.txt
+python scripts/download_assets.py pri
+bash PRI_inference.sh
 ```
 
-For two GPUs:
+Set `ERNIE_CODE`, `ERNIE_CHECKPOINT` and `SAPROT_DIR` in the environment or
+`config/PRI_inference.env`. Use `DEVICE=cpu` when CUDA is unavailable.
+The supplied PRI input is already tokenized; raw RNA preprocessing is not
+included. PRI training with the default PPI initialization also needs the PPI asset.
+
+All four shell entry points read their matching files in `config/`.
+Environment variables override defaults; `PYTHON` selects the interpreter.
+Use `--dry-run` to inspect a command. Relative paths resolve from the repository
+root. Direct Python commands should be run from that directory.
+
+## Training
 
 ```bash
-colbert-ppi-train --config configs/local.json --gpu 0,1
+bash PPI_train.sh
+bash PRI_train.sh
 ```
 
-The template uses 80 epochs, validation-only checkpoint selection and no
-per-epoch test evaluation. Outputs are written beneath `outputs/`, which is
-ignored by Git.
+Defaults use ten training pairs and one epoch per task. Validation AUPRC selects the checkpoint, which is then evaluated on a separate test split. Outputs are saved to `data/runs/ppi_demo/` and `data/runs/pri_demo/`. These small datasets demonstrate training and evaluation; use the benchmark datasets below to inspect the reference retrieval results.
 
-The PPI model uses a shared SaProt+LoRA backbone followed directly by two
-per-residue MLP heads: `query_projector` and `candidate_projector`. It contains
-no post-SaProt Transformer or residue-weight MLP. When
-`save_epoch_components` is enabled, each epoch stores a lightweight LoRA plus
-two-head checkpoint under `epoch_components/`.
-
-The example uses a physical batch size of 12 without activation gradient
-checkpointing. It does not use micro-batching or gradient accumulation. Adjust
-this value only after a full forward/backward memory check on the target GPU.
-
-## Evaluate a frozen checkpoint
+PRI training initializes the protein branch from the PPI checkpoint specified by `PROTEIN_INIT`. Set it to an empty value for SaProt-only initialization:
 
 ```bash
-colbert-ppi-evaluate \
-  --run-dir outputs/run_YYYYMMDD_HHMMSS \
-  --checkpoint best_model.pt \
-  --split test \
-  --protocol results/ppi_label_protocol_v3_1/pinder_test_hetero_afdb.evidence_labels.npz \
-  --output-dir results/test
+PROTEIN_INIT="" bash PRI_train.sh
+DEVICE=cuda:1 EPOCHS=2 bash PPI_train.sh
+bash PPI_train.sh --epochs 2 --batch-size 1
 ```
 
-The evaluator writes `scores.npz` and `metrics.json`. It explicitly evaluates
-both role assignments, applies mutual row/column top-`k=1` filtering, sums the
-largest `N=10` retained similarities and averages the two orientation scores.
-The implementation lives in
-[`src/colbert_ppi/scoring.py`](src/colbert_ppi/scoring.py).
+Use `--dry-run` to print a command without loading models. See [training details](docs/TRAINING.md) for objectives and output files.
 
-For binary evaluation, eligible same-organism pairs whose proteins both map to
-STRING and that are absent from the structural-positive set and a frozen
-`required_score=0` STRING network query are prespecified as database-absence
-operational negatives. Unmapped pairs remain unjudged. The reportable endpoint is
-`operational_binary_auprc`, accompanied by its positive/negative counts and
-prevalence. Negatome-supported negatives remain a stricter sensitivity tier
-and may yield `null` when absent. Entity-level bidirectional MRR and
-Hit@1/5/10/20 are reported from the same frozen candidate universe. See
-[the evidence-label protocol](docs/PPI_EVALUATION_LABEL_PROTOCOL_V3.md).
-
-Protein–protein and protein–nucleic protocols are separate. The optional
-protein–nucleic entry point is:
+## Pair inference
 
 ```bash
-colbert-ppi-train-protein-nucleic --config path/to/config.json
+bash PPI_inference.sh
+bash PRI_inference.sh
 ```
 
-## Contact-only objective
+The default JSON inputs contain tokenized pairs without contact labels. Outputs are written to `data/predictions/ppi.json` and `data/predictions/pri.json`. Set `INPUT`, `CHECKPOINT` and `OUTPUT` to use other inputs. PPI also requires the checkpoint's reference bank.
 
-For each complex, the loader samples labelled contact and non-contact residue
-pairs. If the first \(N_+\) entries are matched positives, the sole optimized
-objective is:
+Pair inference uses the complete multi-vector models. Use benchmark mode for sequence-only and single-vector controls. Input fields and token conventions are described in [DATA_GUIDE.md](docs/DATA_GUIDE.md).
 
-\[
-\mathcal{L}_{contact} =
-\frac{1}{2}\left[
-\operatorname{CE}(S_{1:N_+,:}, y)
-+
-\operatorname{CE}(S^\top_{1:N_+,:}, y)
-\right].
-\]
+## Benchmark evaluation
 
-No protein-level or single-vector objective contributes to the gradient.
-
-## Reproducibility and claim boundary
-
-- Select checkpoints and scoring parameters on validation data only.
-- Evaluate the test split once after all choices are frozen.
-- Keep protein–protein and protein–nucleic protocols separate.
-- Treat late interaction as a system capability in this release; this code
-  alone does not establish a causal ranking advantage over single-vector
-  baselines.
-
-## Development checks
+Download the prepared inputs, frozen labels and numerical evidence first:
 
 ```bash
-python -m compileall -q src tests
-pytest -q
-ruff check src tests
+python scripts/download_assets.py benchmarks
+python -m pip install -e '.[ppi,analysis]'
 ```
 
-The repository intentionally excludes datasets, checkpoints, third-party
-weights, logs, machine addresses, user-specific paths, manuscripts and reviewer
-correspondence. Report security or privacy concerns using
-[SECURITY.md](SECURITY.md).
 
-## Citation and licence
+```bash
+bash PPI_inference.sh --benchmark --split test
+bash PRI_inference.sh --benchmark --split test
+```
 
-Citation metadata are provided in [CITATION.cff](CITATION.cff). See
-[LICENSE](LICENSE) for the current software-use terms.
+Use `--split validation` for the validation inputs. Benchmark mode reads the checkpoint's adjacent `config.json` to select multi-vector, sequence-only or single-vector scoring. Set `CHECKPOINT` to choose a model and `BENCHMARK_OUTPUT` to separate output directories. Defaults are `data/benchmarks/ppi/` and `data/benchmarks/pri/`.
+
+For example, evaluate the single-vector PPI control:
+
+```bash
+CHECKPOINT=data/weights/ppi/ppi_single/weights.pt \
+BENCHMARK_OUTPUT=data/benchmarks/ppi_single \
+bash PPI_inference.sh --benchmark --split test
+```
+
+Run the independent Y2H screen with:
+
+```bash
+python src/benchmark.py --task y2h \
+  --checkpoint data/weights/ppi/ppi_full/weights.pt \
+  --saprot-dir data/weights/backbones/SaProt_650M_PDB \
+  --output data/benchmarks/y2h
+```
+
+The benchmark runner uses the supplied labels and cohort masks. Repeated protein accessions are collapsed for PPI; exact protein/RNA groups are collapsed for PRI. Duplicate scores use the maximum, and positive labels take precedence.
+
+| Readout | Scoring |
+|---|---|
+| Multi-vector PPI and Y2H | Reference calibration, α = 1, τ = 0.03 |
+| Multi-vector PRI | Smooth MaxSim, α = 0, τ = 0.001 |
+| Single-vector controls | Attention-weighted pooled cosine with the model's scale |
+| Interface localisation | Raw residue cosine matrix, averaged over encoder roles |
+
+## Reproduce metrics and figures
+
+Install `.[analysis]` and download the `benchmarks` asset for these commands.
+Figure SVG export additionally needs the system Cairo library.
+
+
+The following CPU commands use saved vectors or predictions:
+
+```bash
+python src/run_example.py
+python src/reproduce_results.py
+```
+
+The first checks scoring on one cached protein pair. The second recalculates retrieval and localisation metrics and writes results to `data/validation_reports/`. Neither requires model downloads.
+
+```bash
+python src/plot_figures.py
+python src/plot_figures.py --official
+```
+
+The first command replots numerical evidence from source tables. `--official` exports the final SVG compositions in `data/figure_templates/`, including schematic and structural assets. Template export preserves the composition and does not recalculate its data.
+
+## Repository layout
+
+```text
+PPI_train.sh / PRI_train.sh
+PPI_inference.sh / PRI_inference.sh
+src/       Models, scoring, training and evaluation
+config/    Launch configurations and model settings
+data/      Inputs, labels, weights, source tables and figure templates
+docs/      Data formats, environment and method details
+```
+
+[CONTENTS.md](docs/CONTENTS.md) describes the included datasets and model components. [CODE_GUIDE.md](docs/CODE_GUIDE.md) maps the implementation. Usage terms are in [LICENSE](LICENSE). Third-party model and data terms are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Scope, citation and support
+
+This release follows the September 2026 manuscript package. Its PPI readout
+uses reference calibration and smooth MaxSim; it supersedes the historical
+GitHub top-k/top-N prototype. See [changes](docs/CHANGELOG.md).
+
+Full original training data and its end-to-end preprocessing are not included.
+The small training splits demonstrate optimization and validation selection;
+they do not reproduce the manuscript training experiment. Supplied benchmark
+labels and frozen predictions support evaluation and numerical reproduction.
+
+Use [CITATION.cff](CITATION.cff) to cite the software and include the exact
+commit or release tag. A preprint DOI will be added when available.
+For questions or reproducible errors, open a
+[GitHub issue](https://github.com/UR-Free/ColBERT-PPI/issues) with the command,
+Python/package versions and traceback.
+
+Development checks: `pip install -e '.[dev]'`, then `pytest -q` and
+`python -m build`. A [CI template](docs/ci/cpu.yml) is provided; activation
+instructions and tested scope are in [validation](docs/VALIDATION.md).

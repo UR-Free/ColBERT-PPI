@@ -1,20 +1,20 @@
 {
   "ppi": {
     "filename": "ColBERT-PPI-ppi-v0.2.0.zip",
-    "sha256": "e3d4a84323397b0fbb7b95192d7aa2418f3eae1bb64f3a869c9e72edecdcaf08",
-    "size_bytes": 213057464,
+    "sha256": "a9d315681ff92a7bba7ee4c05a3d0bc749a2c50b9ce4c5ad78296d941c8a4b35",
+    "size_bytes": 213059769,
     "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.0-preprint/ColBERT-PPI-ppi-v0.2.0.zip"
   },
   "pri": {
     "filename": "ColBERT-PPI-pri-v0.2.0.zip",
-    "sha256": "0926f0e956fb67d642f5141426523a13d5070481cd69afb11466e28709b600bf",
-    "size_bytes": 1457970296,
+    "sha256": "78a11f5a672ff6af01d120aae1a85dab64d4c3b69f30d9395b226094417e2acc",
+    "size_bytes": 1457972601,
     "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.0-preprint/ColBERT-PPI-pri-v0.2.0.zip"
   },
   "benchmarks": {
     "filename": "ColBERT-PPI-benchmarks-v0.2.0.zip",
-    "sha256": "9e7ce60884fafb4fb3f2a9700eacf2236ff60b8be8ffb2476f1707bbe047d84c",
-    "size_bytes": 115516254,
+    "sha256": "6afde57feed2e35e9c951195b5045c635db01100f0bc99a168bb6d6ea2e7f861",
+    "size_bytes": 115518560,
     "url": "https://github.com/UR-Free/ColBERT-PPI/releases/download/v0.2.0-preprint/ColBERT-PPI-benchmarks-v0.2.0.zip"
   }
 }

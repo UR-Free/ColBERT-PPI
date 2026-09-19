@@ -3,7 +3,7 @@ from pathlib import Path
 import zipfile
 import pytest
 
-spec = importlib.util.spec_from_file_location('download_assets', Path(__file__).parents[1] / 'scripts/download_assets.py')
+spec = importlib.util.spec_from_file_location('download_assets', Path(__file__).parents[1] / 'download_assets.py')
 assets = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(assets)
 

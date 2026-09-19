@@ -1,0 +1,9 @@
+{
+  "figure": "Fig. 1",
+  "source": "September manuscript distribution, Fig1_Model_Architecture.svg; matching final PNG",
+  "modifications": "none",
+  "sha256": {
+    "Fig1.svg": "efdfc6461daea2b1361f04511618e1b417ba9fb3ec91f67ed30dd60d7254b034",
+    "Fig1.png": "c7fbfb93218487619c0feabceaa2d4f2d7525c9a5c1161585e0a432fd22f2376"
+  }
+}

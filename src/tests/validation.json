@@ -45,6 +45,29 @@
   "full_training_rerun": false,
   "full_neural_benchmark_rerun": false,
   "gpu_validation": false,
-  "github_actions": "template only; publishing credential lacks workflow scope",
-  "ppi_asset_checksum_and_extraction": "PASS"
+  "github_actions": "config/ci.yml template only; publishing credential lacks workflow scope",
+  "ppi_asset_checksum_and_extraction": "PASS",
+  "layout_validation_date": "2026-09-20",
+  "six_top_level_entries": [
+    "LICENSE",
+    "README.md",
+    "config",
+    "data",
+    "requirements.txt",
+    "src"
+  ],
+  "relocated_package_fresh_install": "PASS",
+  "relocated_wheel_and_sdist_build": "PASS",
+  "launcher_run_from_outside_checkout": "PASS",
+  "layout_ppi_predictions": [
+    {
+      "pair_id": "benchmark_1c40__B1_P02118-R:benchmark_1c40__A2_P01990-L",
+      "score": 0.26619631085414597
+    },
+    {
+      "pair_id": "benchmark_1cg5__A2_P56691-R:benchmark_1cg5__B1_P56692-L",
+      "score": 0.24707107889055696
+    }
+  ],
+  "release_asset_integrity": "All three MIT ZIPs passed checksum and full ZIP integrity checks"
 }

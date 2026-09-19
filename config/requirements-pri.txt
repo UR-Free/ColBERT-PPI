@@ -1,5 +1,5 @@
 # Python 3.10, pip<24.1: fairseq uses legacy OmegaConf metadata.
--r requirements.txt
+-r ../requirements.txt
 fairseq==0.12.2
 hydra-core==1.0.7
 omegaconf==2.0.6

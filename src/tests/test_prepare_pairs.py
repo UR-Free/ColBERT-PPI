@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import pytest
 
-spec = importlib.util.spec_from_file_location('prepare_pairs', Path(__file__).parents[1] / 'src/prepare_pairs.py')
+spec = importlib.util.spec_from_file_location('prepare_pairs', Path(__file__).parents[1] / 'prepare_pairs.py')
 prepare_pairs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare_pairs)
 

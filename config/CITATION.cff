@@ -7,3 +7,4 @@ repository-code: "https://github.com/UR-Free/ColBERT-PPI"
 url: "https://github.com/UR-Free/ColBERT-PPI"
 authors:
   - name: "ColBERT-PPI Authors"
+license: MIT

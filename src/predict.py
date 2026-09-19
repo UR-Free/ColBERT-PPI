@@ -33,7 +33,7 @@ def main():
     try:
         records = read_inference_pairs(args.input)
         if not Path(args.checkpoint).is_file():
-            raise ValueError("Checkpoint missing; download components as described in docs/WEIGHTS.md")
+            raise ValueError("Checkpoint missing; download components as described in README.md")
         if args.task == "ppi" and (not args.reference_bank or not Path(args.reference_bank).is_file()):
             raise ValueError("PPI requires the reference bank distributed with the selected checkpoint")
         cfg = Path(args.checkpoint).with_name("config.json")

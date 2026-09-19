@@ -43,7 +43,7 @@ def main():
     parser.add_argument("--archive", type=Path, help="Verify/extract an already downloaded ZIP")
     parser.add_argument("--destination", type=Path, default=ROOT)
     args = parser.parse_args()
-    spec = json.loads((ROOT / "assets.json").read_text())[args.asset]
+    spec = json.loads((ROOT / "config/assets.json").read_text())[args.asset]
     with tempfile.TemporaryDirectory(prefix="colbert_ppi_asset_") as temp:
         archive = args.archive or Path(temp) / spec["filename"]
         try:
@@ -53,10 +53,10 @@ def main():
                 with urllib.request.urlopen(request, timeout=60) as response, archive.open("wb") as stream:
                     shutil.copyfileobj(response, stream)
             if sha256(archive) != spec["sha256"]:
-                raise ValueError("SHA-256 mismatch; obtain the exact version listed in assets.json")
+                raise ValueError("SHA-256 mismatch; obtain the exact version listed in config/assets.json")
             extract(archive, args.destination)
         except (OSError, ValueError, zipfile.BadZipFile, urllib.error.URLError) as error:
-            parser.exit(1, f"Asset setup failed: {error}\nSee docs/WEIGHTS.md for manual download.\n")
+            parser.exit(1, f"Asset setup failed: {error}\nSee README.md for manual download.\n")
     print(f"Verified and extracted {spec['filename']} to {args.destination}")
 
 

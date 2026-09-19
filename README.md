@@ -1,16 +1,23 @@
-# ColBERT-PPI
+# 🧬 ColBERT-PPI
 
 Retrieve protein partners with reusable residue-level representations.
 Supports protein–protein (PPI) and protein–RNA (PRI) matching.
+
+![Python 3.10](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
+![CUDA GPU](https://img.shields.io/badge/CUDA-GPU-76B900?logo=nvidia&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+[Quick start](#-quick-start) · [Evaluate](#-evaluate) ·
+[Model weights](https://github.com/UR-Free/ColBERT-PPI/releases/tag/v0.2.1-preprint) · [For agent use](#-for-agent-use)
 
 [![Fig. 1 — ColBERT-PPI](data/paper/Fig1.png)](data/paper/Fig1.svg)
 
 *Contact-supervised representations for partner retrieval and interface evidence.
 Click the figure for the vector version.*
 
-## Quick start
+## 🚀 Quick start
 
-Linux, Conda and a CUDA GPU are required for model inference.
+**Requirements:** Linux · Conda · CUDA GPU
 
 ```bash
 git clone https://github.com/UR-Free/ColBERT-PPI.git
@@ -29,9 +36,10 @@ weights and tokenizer files. Run the bundled protein-pair example:
 python src/predict.py
 ```
 
-The default device is `cuda:0`; use `CUDA_VISIBLE_DEVICES=1` to select another
-GPU. Results are saved to `data/results/ppi/predictions.json`. Higher scores
-indicate stronger matches; scores are not probabilities.
+> **GPU:** Defaults to `cuda:0`. Set `CUDA_VISIBLE_DEVICES=1` to select another GPU.
+
+**Output:** `data/results/ppi/predictions.json`. Higher scores indicate stronger
+matches; scores are not probabilities.
 
 For your own proteins, follow the [PDB input example](data/README.md#custom-ppi-inputs), then:
 
@@ -39,7 +47,7 @@ For your own proteins, follow the [PDB input example](data/README.md#custom-ppi-
 python src/predict.py --input data/user/pairs.json
 ```
 
-## Evaluate
+## 📊 Evaluate
 
 ```bash
 python src/download.py benchmarks
@@ -59,7 +67,7 @@ validation AUPRC among the three 100% PPI seeds. Downloads verify the
 [asset checksums and model identities](data/weights/manifest.json).
 
 <details>
-<summary>Protein–RNA, training and manual downloads</summary>
+<summary>🛠️ <strong>Protein–RNA, training and manual downloads</strong></summary>
 
 PRI additionally uses the official [ERNIE-RNA source and weights](https://github.com/Bruce-ywj/ERNIE-RNA).
 Set their paths in `config/pri.json`, then:
@@ -85,27 +93,12 @@ downloaded archive.
 
 </details>
 
-## Repository layout
-
-```text
-README.md          Start here
-LICENSE            MIT
-requirements.txt   Python dependencies
-config/            ppi.json and pri.json: model paths and run settings
-src/               Download, prediction, evaluation and training scripts
-data/              examples/, weights/, benchmarks/, paper/, results/
-```
-
-In `src/colbert_ppi/`, `models/` defines the encoders, `inference.py` and
-`scoring.py` perform prediction, and `training.py` and `losses.py` handle
-training. The scripts directly under `src/` are the entry points. Set model
-paths in `config/ppi.json` or `config/pri.json`; script arguments override them.
-Use `python src/predict.py --help` to see options, or `--dry-run` to check settings.
+---
 
 [Data formats](data/README.md) · [MIT license](LICENSE) ·
 [Citation](data/paper/CITATION.cff) · [Issues](https://github.com/UR-Free/ColBERT-PPI/issues)
 
-## For agent use
+## 🤖 For agent use
 
 - Work from the repository root in the `colbert-ppi` Conda environment.
   Install `requirements.txt`; PRI also needs `config/requirements-pri.txt`.

@@ -44,7 +44,7 @@
   "clean_neural_installation": false,
   "full_training_rerun": false,
   "full_neural_benchmark_rerun": false,
-  "gpu_validation": false,
+  "gpu_validation": true,
   "github_actions": "config/ci.yml template only; publishing credential lacks workflow scope",
   "ppi_asset_checksum_and_extraction": "PASS",
   "layout_validation_date": "2026-09-20",
@@ -69,5 +69,35 @@
       "score": 0.24707107889055696
     }
   ],
-  "release_asset_integrity": "All three MIT ZIPs passed checksum and full ZIP integrity checks"
+  "release_asset_integrity": "All three MIT ZIPs passed checksum and full ZIP integrity checks",
+  "gpu_validation_date": "2026-09-20",
+  "gpu_environment": {
+    "model": "NVIDIA A100-SXM4-80GB",
+    "physical_device": 0,
+    "logical_device": "cuda:0",
+    "torch": "2.8.0+cu128",
+    "neural_precision": "bfloat16 autocast",
+    "ppi_entrypoint": "src/launchers/PPI_inference.sh",
+    "pri_entrypoint": "src/launchers/PRI_inference.sh"
+  },
+  "ppi_gpu_predictions": [
+    {
+      "pair_id": "benchmark_1c40__B1_P02118-R:benchmark_1c40__A2_P01990-L",
+      "score": 0.2667574460187587
+    },
+    {
+      "pair_id": "benchmark_1cg5__A2_P56691-R:benchmark_1cg5__B1_P56692-L",
+      "score": 0.24767322990956064
+    }
+  ],
+  "pri_gpu_predictions": [
+    {
+      "pair_id": "1dul:A:B:rna",
+      "score": 0.3677931173317128
+    },
+    {
+      "pair_id": "1t4l:B:A:rna",
+      "score": 0.002959243947129063
+    }
+  ]
 }

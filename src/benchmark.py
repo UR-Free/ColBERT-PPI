@@ -239,7 +239,7 @@ def main():
     p.add_argument("--ernie-code")
     p.add_argument("--reference-bank")
     p.add_argument("--scores")
-    p.add_argument("--device", default="cpu")
+    p.add_argument("--device", default="cuda:0")
     p.add_argument("--threads", type=int, default=4)
     p.add_argument("--output", required=True)
     run(p.parse_args())

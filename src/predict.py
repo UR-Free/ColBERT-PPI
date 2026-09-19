@@ -44,7 +44,7 @@ def main():
             if settings.get("task", args.task) != args.task:
                 raise ValueError("Checkpoint task does not match --task")
         if args.device.startswith("cuda") and not torch.cuda.is_available():
-            raise ValueError("CUDA is unavailable; use --device cpu or DEVICE=cpu")
+            raise ValueError("CUDA is unavailable; check the NVIDIA driver, PyTorch CUDA build and selected GPU")
         banks = dict(np.load(args.reference_bank)) if args.reference_bank else None
         if args.task == "ppi" and not {"query", "candidate"}.issubset(banks):
             raise ValueError("Reference bank must contain query and candidate arrays")

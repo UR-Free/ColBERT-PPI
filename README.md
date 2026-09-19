@@ -12,34 +12,28 @@ and local interface evidence. Click the figure for the vector version.*
 
 ## Quick start
 
-**Linux · Python 3.10 · CPU · no model download**
+**Linux · Python 3.10 · CUDA GPU**
 
 ```bash
 git clone https://github.com/UR-Free/ColBERT-PPI.git
 cd ColBERT-PPI
 python3.10 -m venv src/.venv
 source src/.venv/bin/activate
-python -m pip install -e ./src
-OPENBLAS_NUM_THREADS=1 python src/run_example.py
-```
-
-Expected: `"status": "PASS"`, score ≈ `-0.01595231`, matrix errors < `2e-6`.
-This checks scoring on cached vectors; it does not run a neural encoder.
-
-## Predict protein partners
-
-```bash
 python -m pip install -e './src[ppi]'
+python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
 python src/download_assets.py ppi
 ```
+
+## Predict protein partners
 
 Download [SaProt_650M_PDB](https://huggingface.co/westlake-repl/SaProt_650M_PDB)
 into `data/weights/backbones/SaProt_650M_PDB/`, including `pytorch_model.bin`,
 `config.json` and the tokenizer files. Then:
 
 ```bash
-DEVICE=cpu bash src/launchers/PPI_inference.sh
-# Use DEVICE=cuda:0 for GPU inference.
+bash src/launchers/PPI_inference.sh  # defaults to cuda:0
+# Choose a physical GPU when needed:
+CUDA_VISIBLE_DEVICES=1 bash src/launchers/PPI_inference.sh
 ```
 
 Output: `data/predictions/ppi.json`. Higher scores rank partners more strongly;
@@ -52,7 +46,7 @@ Paths and devices can be set in [config/](config) or through environment variabl
 ```bash
 python -m pip install -r requirements.txt
 python src/download_assets.py benchmarks
-python src/reproduce_results.py                            # cached predictions; CPU
+python src/reproduce_results.py                            # cached predictions
 bash src/launchers/PPI_inference.sh --benchmark --split test # neural evaluation
 ```
 
@@ -78,7 +72,7 @@ Use Python 3.10 and set the backbone paths in `config/PRI_inference.env`:
 python -m pip install 'pip<24.1'
 python -m pip install -r config/requirements-pri.txt
 python src/download_assets.py pri
-DEVICE=cpu bash src/launchers/PRI_inference.sh
+bash src/launchers/PRI_inference.sh  # defaults to cuda:0
 ```
 
 The legacy fairseq dependency may require a C/C++ compiler. The supplied PRI
@@ -101,11 +95,14 @@ public release. See [data formats and provenance](data/README.md).
 
 Use these instructions when helping a reader install or evaluate this repository:
 
-1. Work from the repository root. Create `src/.venv`, install `./src`, and run
-   `src/run_example.py` first. Require `PASS` and matrix errors below `2e-6`.
-2. Install only the dependencies needed for the requested task: `./src[ppi]`
-   for PPI, `./src[analysis]` for cached metrics, or `config/requirements-pri.txt`
-   for PRI. Check CUDA availability; CPU inference is supported.
+1. Work from the repository root in `src/.venv`. Check the CUDA driver and
+   GPU availability first. Inference, training and neural evaluation default
+   to `cuda:0`; select an available device with `CUDA_VISIBLE_DEVICES`.
+   If CUDA is unavailable, report the issue instead of silently using CPU.
+2. Install `./src[ppi]` for PPI, `./src[analysis]` for cached metrics, or
+   `config/requirements-pri.txt` for PRI. As a lightweight scoring check, run
+   `src/run_example.py`; require `PASS`, score near `-0.01595231` and matrix
+   errors below `2e-6`. Then run the requested neural workflow on GPU.
 3. Fetch task assets using `src/download_assets.py`. Check
    `config/assets.json`; never substitute a different checkpoint or reference
    bank. Obtain SaProt/ERNIE-RNA from upstream, using the configured paths.
@@ -120,6 +117,6 @@ Use these instructions when helping a reader install or evaluate this repository
    scoring success is not evidence of successful neural inference.
 
 Development: `pip install -e './src[dev]'` then `python -m pytest -q src/tests`.
-[Local validation](src/tests/validation.json) records 21 tests and CPU PPI/PRI
+[Local validation](src/tests/validation.json) records the tests and executed PPI/PRI
 smoke checks; full retraining and clean neural installation were not tested.
 A [CI template](config/ci.yml) is supplied but not enabled.

@@ -1,0 +1,7 @@
+{
+  "pair_id": "('O25709', 0, 171):('O25448', 0, 126)",
+  "pair_index": 0,
+  "selection": "first stored complex, chosen by index, not performance",
+  "checkpoint_epoch": 69,
+  "input_type": "cached role-specific output residue vectors; this is a readout demonstration, not sequence-to-vector inference"
+}

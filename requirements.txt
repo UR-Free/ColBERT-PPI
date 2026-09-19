@@ -1,0 +1,2 @@
+# Run from the repository root. PPI and numerical reproduction; PRI is optional.
+-e ./src[ppi,analysis]

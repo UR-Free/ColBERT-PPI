@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "colbert-ppi"
+version = "0.2.0"
+description = "Protein partner retrieval with reusable residue-level representations"
+readme = {text = "ColBERT-PPI: see the repository README for examples, models and documentation.", content-type = "text/plain"}
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = ["numpy==2.2.6", "scipy==1.15.3"]
+
+[project.optional-dependencies]
+ppi = ["torch==2.8.0", "transformers==5.12.1", "peft==0.19.1", "scikit-learn==1.7.1"]
+analysis = ["pandas==2.3.2", "scikit-learn==1.7.1", "matplotlib==3.10.6", "CairoSVG==2.8.2"]
+dev = ["pytest>=8,<9", "build>=1,<2"]
+
+[project.urls]
+Repository = "https://github.com/UR-Free/ColBERT-PPI"
+Issues = "https://github.com/UR-Free/ColBERT-PPI/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["colbert_ppi*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

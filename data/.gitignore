@@ -1,0 +1,14 @@
+weights/*
+!weights/README.md
+ppi/
+pri/
+y2h/
+localisation/
+source_data/
+figure_templates/
+validation_reports/
+benchmarks/
+predictions/
+runs/
+user/
+asset_metadata/

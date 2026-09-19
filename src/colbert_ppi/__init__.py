@@ -1,3 +1,3 @@
-"""Contact-supervised, residue-explicit protein-pair modelling."""
+"""ColBERT-PPI scoring and numerical evaluation."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

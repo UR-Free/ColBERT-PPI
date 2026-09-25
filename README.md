@@ -7,6 +7,7 @@ Supports protein–protein (PPI) and protein–RNA (PRI) matching.
 ![CUDA GPU](https://img.shields.io/badge/CUDA-GPU-76B900?logo=nvidia&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+[📄 bioRxiv preprint](https://www.biorxiv.org/content/10.64898/2026.09.19.752878v1) ·
 [Quick start](#-quick-start) · [Evaluate](#-evaluate) ·
 [Model weights](https://github.com/UR-Free/ColBERT-PPI/releases/tag/v0.2.1-preprint) · [For agent use](#-for-agent-use)
 

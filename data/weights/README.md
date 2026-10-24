@@ -12,4 +12,4 @@ see [selection evidence](manifest.json).
 Run `python src/download.py ppi` or `python src/download.py pri`
 from the repository root. The default inference configurations already point
 to these models. Upstream SaProt and, for PRI, ERNIE-RNA are obtained separately.
-See the [README](../../README.md#predict-protein-partners).
+See the [README](../../README.md#-quick-start).

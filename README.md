@@ -118,8 +118,10 @@ downloaded archive.
   Install `requirements.txt`; PRI also needs `config/requirements-pri.txt`.
 - Check CUDA availability and select a free GPU. Model workflows default to
   GPU; report CUDA problems rather than silently switching to CPU.
-- Fetch assets with `python src/download.py`; keep checkpoints and reference
-  banks matched to `data/weights/manifest.json`. Configure backbone paths in `config/`.
+- Fetch a specific asset with `python src/download.py ppi`, `python
+  src/download.py pri`, or `python src/download.py benchmarks`; keep
+  checkpoints and reference banks matched to `data/weights/manifest.json`.
+  Configure backbone paths in `config/`.
 - Run `python src/check_example.py` for a lightweight scoring check (expect `PASS`),
   then `python src/predict.py` to verify actual GPU inference. Do not start training
   as an installation check. Development checks: `pip install pytest` and `pytest -q -c src/pytest.ini`.
